@@ -41,7 +41,14 @@ class OrbitNet(nn.Module):
             d_model=d_model, nhead=n_heads, dim_feedforward=4 * d_model,
             dropout=dropout, batch_first=True,
         )
-        self.encoder = nn.TransformerEncoder(encoder_layer, num_layers=n_layers)
+        # On Apple Silicon (MPS) the nested-tensor fast path (taken when a
+        # src_key_padding_mask is passed) hits aten::_nested_tensor_from_mask*,
+        # which isn't implemented on MPS and raises. Disable it only there;
+        # CUDA/CPU keep the default optimized path.
+        enable_nested = not torch.backends.mps.is_available()
+        self.encoder = nn.TransformerEncoder(
+            encoder_layer, num_layers=n_layers, enable_nested_tensor=enable_nested,
+        )
 
         # Target-selection attention (query = owned planet, key = any planet).
         self.q_proj = nn.Linear(d_model, d_model)

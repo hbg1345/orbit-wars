@@ -230,6 +230,11 @@ def main():
     teacher_sd = {k: v.detach().cpu() for k, v in teacher.state_dict().items()}
     best_pool = load_pool()
     next_snap_id = max((e["id"] for e in best_pool), default=-1) + 1   # unique pool ids
+
+    # SL teacher as a permanent (never-evicted) league member with id -1. It
+    # competes for PFSP sampling exactly like a pool snapshot via its win/game
+    # stats, instead of only filling empty slots.
+    sl_entry = {"id": -1, "sd": teacher_sd, "w": 0, "g": 0}
     if best_pool:
         print(f"restored {len(best_pool)} pool snapshot(s) from {RL_POOL_DIR}/")
 
@@ -241,42 +246,59 @@ def main():
     print(f"rollout workers: {workers}  |  games/iter: {args.games} tr, {args.eval_games} eval  "
           f"| pool size: {POOL_SIZE}")
 
-    def opp_refs():
-        # League opponents as (sd, id, is_sl). Slot 0 = most recent SOTA (anchor:
-        # always face the latest), the rest PFSP-sampled (prioritise hard ones,
-        # without replacement), padding with the frozen SL teacher (id -1).
+    def as_ref(e):
+        return (e["sd"], e["id"], e["id"] == -1)
+
+    def league():
+        # Full opponent league: all pool snapshots + the SL teacher, all eligible
+        # for PFSP sampling on equal footing.
+        return list(best_pool) + [sl_entry]
+
+    def pfsp_pick(candidates):
+        # PFSP-sample one opponent (harder -> higher weight).
+        weights = [pfsp_weight(e) for e in candidates]
+        j = random.choices(range(len(candidates)), weights=weights, k=1)[0]
+        return as_ref(candidates[j])
+
+    def opp_trio():
+        # Three opponents for a 4-player game. Slot 0 = most recent snapshot
+        # (anchor: always face the latest); the other two PFSP-sampled without
+        # replacement from the rest of the league (pool[1:] + SL teacher, all
+        # equal). If the league is smaller than N_OPP, fill the remaining seats
+        # by PFSP-resampling the full league with replacement -- SL is treated
+        # exactly like any pool snapshot, never a privileged padding source.
         entries = list(best_pool)
         refs = []
+        rest = (entries[1:] if entries else []) + [sl_entry]
         if entries:
-            e0 = entries[0]
-            refs.append((e0["sd"], e0["id"], False))
-        candidates = entries[1:] if len(entries) > 1 else []
-        weights = [pfsp_weight(e) for e in candidates]
-        while len(refs) < N_OPP and candidates:
-            j = random.choices(range(len(candidates)), weights=weights, k=1)[0]
-            e = candidates.pop(j); weights.pop(j)
-            refs.append((e["sd"], e["id"], False))
+            refs.append(as_ref(entries[0]))
+        weights = [pfsp_weight(e) for e in rest]
+        while len(refs) < N_OPP and rest:
+            j = random.choices(range(len(rest)), weights=weights, k=1)[0]
+            weights.pop(j)
+            refs.append(as_ref(rest.pop(j)))
         while len(refs) < N_OPP:
-            refs.append((teacher_sd, -1, True))   # SL teacher fills empty slots
+            refs.append(pfsp_pick(league()))         # resample whole league (w/ replacement)
         return refs
 
     def make_tasks(learner_sd, is_eval=False):
-        refs = opp_refs()                          # list of (sd, id, is_sl)
         target_games = args.eval_games if is_eval else args.games
         n4 = target_games // 4
         n2 = target_games - n4
         tasks, tags, opp_ids = [], [], []
+        cands = league()
         for j in range(n2):
-            sd_k, id_k, is_sl_k = refs[j % N_OPP]
+            sd_k, id_k, is_sl_k = pfsp_pick(cands)   # fresh opponent per game
             tasks.append((learner_sd, [sd_k], [is_sl_k], j % 2, is_eval))
             tags.append("sl2p" if is_sl_k else "best2p")
-            opp_ids.append(id_k)                   # clean attribution in 2p
+            opp_ids.append(id_k)                     # clean attribution in 2p
         for j in range(n4):
+            refs = opp_trio()                        # fresh trio per game
             sds = [r[0] for r in refs]
             is_sls = [r[2] for r in refs]
             tasks.append((learner_sd, sds, is_sls, j % 4, is_eval))
             tags.append("4p")
-            opp_ids.append(None)                   # ambiguous in 4p -> no stat update
+            opp_ids.append(None)                     # ambiguous in 4p -> no stat update
         return tasks, tags, opp_ids
 
     def rollouts(is_eval=False):
@@ -302,6 +324,7 @@ def main():
         feats_buf, valid_buf, mine_buf, rec_buf, step_rewards_buf, dones_buf = [], [], [], [], [], []
         tr_w = tr_g = 0
         id2entry = {e["id"]: e for e in best_pool}   # for PFSP stat attribution
+        id2entry[-1] = sl_entry                       # SL teacher tracked like any member
 
         for tag, opp_id, (seat_data, reward, shaped, won, players) in tqdm(rollouts(is_eval=False), total=args.games,
                                                                            desc="train rollout", unit="game", leave=False):
