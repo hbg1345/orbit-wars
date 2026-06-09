@@ -1,0 +1,1059 @@
+
+===== step 0 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=0 angular_velocity=0.03236335190859591
+#planets=32 #fleets=0 #comet_groups=0 comet_planet_ids=[]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+
+===== step 1 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=1 angular_velocity=0.03236335190859591
+#planets=32 #fleets=2 #comet_groups=0 comet_planet_ids=[]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[0, 0, 78.75362026267182, 88.54617475252637, -2.3538919455330873, 16, 10] (len=7)
+
+===== step 2 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=2 angular_velocity=0.03236335190859591
+#planets=32 #fleets=2 #comet_groups=0 comet_planet_ids=[]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[0, 0, 77.36929816748209, 87.1554630066947, -2.3538919455330873, 16, 10] (len=7)
+
+===== step 3 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=3 angular_velocity=0.03236335190859591
+#planets=32 #fleets=4 #comet_groups=0 comet_planet_ids=[]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[0, 0, 75.98497607229235, 85.76475126086304, -2.3538919455330873, 16, 10] (len=7)
+
+===== step 4 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=4 angular_velocity=0.03236335190859591
+#planets=32 #fleets=4 #comet_groups=0 comet_planet_ids=[]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[0, 0, 74.60065397710262, 84.37403951503137, -2.3538919455330873, 16, 10] (len=7)
+
+===== step 5 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=5 angular_velocity=0.03236335190859591
+#planets=32 #fleets=4 #comet_groups=0 comet_planet_ids=[]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[0, 0, 73.2163318819129, 82.9833277691997, -2.3538919455330873, 16, 10] (len=7)
+
+===== step 6 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=6 angular_velocity=0.03236335190859591
+#planets=32 #fleets=5 #comet_groups=0 comet_planet_ids=[]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[0, 0, 71.83200978672316, 81.59261602336804, -2.3538919455330873, 16, 10] (len=7)
+
+===== step 7 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=7 angular_velocity=0.03236335190859591
+#planets=32 #fleets=6 #comet_groups=0 comet_planet_ids=[]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[0, 0, 70.44768769153343, 80.20190427753637, -2.3538919455330873, 16, 10] (len=7)
+
+===== step 8 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=8 angular_velocity=0.03236335190859591
+#planets=32 #fleets=6 #comet_groups=0 comet_planet_ids=[]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[0, 0, 69.0633655963437, 78.8111925317047, -2.3538919455330873, 16, 10] (len=7)
+
+===== step 9 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=9 angular_velocity=0.03236335190859591
+#planets=32 #fleets=7 #comet_groups=0 comet_planet_ids=[]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[0, 0, 67.67904350115397, 77.42048078587304, -2.3538919455330873, 16, 10] (len=7)
+
+===== step 10 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=10 angular_velocity=0.03236335190859591
+#planets=32 #fleets=7 #comet_groups=0 comet_planet_ids=[]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[0, 0, 66.29472140596424, 76.02976904004137, -2.3538919455330873, 16, 10] (len=7)
+
+===== step 11 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=11 angular_velocity=0.03236335190859591
+#planets=32 #fleets=5 #comet_groups=0 comet_planet_ids=[]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[2, 0, 67.40094026029105, 79.53652386925702, -2.443336729574361, 16, 8] (len=7)
+
+===== step 12 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=12 angular_velocity=0.03236335190859591
+#planets=32 #fleets=5 #comet_groups=0 comet_planet_ids=[]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[2, 0, 66.00242786475675, 78.36273655576524, -2.443336729574361, 16, 8] (len=7)
+
+===== step 13 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=13 angular_velocity=0.03236335190859591
+#planets=32 #fleets=5 #comet_groups=0 comet_planet_ids=[]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[2, 0, 64.60391546922246, 77.18894924227345, -2.443336729574361, 16, 8] (len=7)
+
+===== step 14 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=14 angular_velocity=0.03236335190859591
+#planets=32 #fleets=5 #comet_groups=0 comet_planet_ids=[]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[2, 0, 63.20540307368816, 76.01516192878167, -2.443336729574361, 16, 8] (len=7)
+
+===== step 15 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=15 angular_velocity=0.03236335190859591
+#planets=32 #fleets=3 #comet_groups=0 comet_planet_ids=[]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[4, 1, 36.3409294270799, 22.766171436577046, 0.6706765902329846, 19, 12] (len=7)
+
+===== step 16 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=16 angular_velocity=0.03236335190859591
+#planets=32 #fleets=2 #comet_groups=0 comet_planet_ids=[]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[5, 0, 78.75521381674208, 66.69438173939025, -1.695591278612136, 16, 16] (len=7)
+
+===== step 17 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=17 angular_velocity=0.03236335190859591
+#planets=32 #fleets=2 #comet_groups=0 comet_planet_ids=[]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[5, 0, 78.47248589755883, 64.44061526222828, -1.695591278612136, 16, 16] (len=7)
+
+===== step 18 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=18 angular_velocity=0.03236335190859591
+#planets=32 #fleets=2 #comet_groups=0 comet_planet_ids=[]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[5, 0, 78.18975797837557, 62.1868487850663, -1.695591278612136, 16, 16] (len=7)
+
+===== step 19 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=19 angular_velocity=0.03236335190859591
+#planets=32 #fleets=2 #comet_groups=0 comet_planet_ids=[]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[5, 0, 77.90703005919231, 59.93308230790433, -1.695591278612136, 16, 16] (len=7)
+
+===== step 20 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=20 angular_velocity=0.03236335190859591
+#planets=32 #fleets=3 #comet_groups=0 comet_planet_ids=[]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[5, 0, 77.62430214000905, 57.679315830742354, -1.695591278612136, 16, 16] (len=7)
+
+===== step 21 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=21 angular_velocity=0.03236335190859591
+#planets=32 #fleets=3 #comet_groups=0 comet_planet_ids=[]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[5, 0, 77.34157422082579, 55.42554935358038, -1.695591278612136, 16, 16] (len=7)
+
+===== step 22 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=22 angular_velocity=0.03236335190859591
+#planets=32 #fleets=3 #comet_groups=0 comet_planet_ids=[]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[5, 0, 77.05884630164253, 53.171782876418405, -1.695591278612136, 16, 16] (len=7)
+
+===== step 23 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=23 angular_velocity=0.03236335190859591
+#planets=32 #fleets=4 #comet_groups=0 comet_planet_ids=[]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[5, 0, 76.77611838245927, 50.91801639925643, -1.695591278612136, 16, 16] (len=7)
+
+===== step 24 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=24 angular_velocity=0.03236335190859591
+#planets=32 #fleets=4 #comet_groups=0 comet_planet_ids=[]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[6, 1, 22.640277441886067, 43.75916168044056, 1.4436662486871925, 19, 12] (len=7)
+
+===== step 25 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=25 angular_velocity=0.03236335190859591
+#planets=32 #fleets=4 #comet_groups=0 comet_planet_ids=[]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[6, 1, 22.903840606803943, 45.82115777878479, 1.4436662486871925, 19, 12] (len=7)
+
+===== step 26 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=26 angular_velocity=0.03236335190859591
+#planets=32 #fleets=4 #comet_groups=0 comet_planet_ids=[]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[6, 1, 23.16740377172182, 47.88315387712901, 1.4436662486871925, 19, 12] (len=7)
+
+===== step 27 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=27 angular_velocity=0.03236335190859591
+#planets=32 #fleets=3 #comet_groups=0 comet_planet_ids=[]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[7, 1, 60.40902840330354, 5.613260072091689, -0.8110966096211966, 15, 40] (len=7)
+
+===== step 28 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=28 angular_velocity=0.03236335190859591
+#planets=32 #fleets=3 #comet_groups=0 comet_planet_ids=[]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[8, 0, 41.77093532923726, 91.59598001196687, 2.2805833624901313, 12, 42] (len=7)
+
+===== step 29 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=29 angular_velocity=0.03236335190859591
+#planets=32 #fleets=3 #comet_groups=0 comet_planet_ids=[]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[8, 0, 39.82239683890643, 93.8639417938242, 2.2805833624901313, 12, 42] (len=7)
+
+===== step 30 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=30 angular_velocity=0.03236335190859591
+#planets=32 #fleets=2 #comet_groups=0 comet_planet_ids=[]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[10, 1, 54.59104524579265, 15.26796061977987, -0.9792839695045742, 15, 20] (len=7)
+
+===== step 31 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=31 angular_velocity=0.03236335190859591
+#planets=32 #fleets=2 #comet_groups=0 comet_planet_ids=[]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[10, 1, 55.94492275741612, 13.252506811906827, -0.9792839695045742, 15, 20] (len=7)
+
+===== step 32 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=32 angular_velocity=0.03236335190859591
+#planets=32 #fleets=3 #comet_groups=0 comet_planet_ids=[]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[10, 1, 57.298800269039596, 11.237053004033783, -0.9792839695045742, 15, 20] (len=7)
+
+===== step 33 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=33 angular_velocity=0.03236335190859591
+#planets=32 #fleets=3 #comet_groups=0 comet_planet_ids=[]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[10, 1, 58.65267778066307, 9.221599196160739, -0.9792839695045742, 15, 20] (len=7)
+
+===== step 34 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=34 angular_velocity=0.03236335190859591
+#planets=32 #fleets=3 #comet_groups=0 comet_planet_ids=[]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[10, 1, 60.00655529228654, 7.206145388287695, -0.9792839695045742, 15, 20] (len=7)
+
+===== step 35 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=35 angular_velocity=0.03236335190859591
+#planets=32 #fleets=2 #comet_groups=0 comet_planet_ids=[]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[11, 0, 74.05822410253002, 31.961991504873605, -1.6972700935430944, 14, 29] (len=7)
+
+===== step 36 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=36 angular_velocity=0.03236335190859591
+#planets=32 #fleets=2 #comet_groups=0 comet_planet_ids=[]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[11, 0, 73.71743840388118, 29.281856791423643, -1.6972700935430944, 14, 29] (len=7)
+
+===== step 37 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=37 angular_velocity=0.03236335190859591
+#planets=32 #fleets=2 #comet_groups=0 comet_planet_ids=[]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[11, 0, 73.37665270523233, 26.60172207797368, -1.6972700935430944, 14, 29] (len=7)
+
+===== step 38 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=38 angular_velocity=0.03236335190859591
+#planets=32 #fleets=1 #comet_groups=0 comet_planet_ids=[]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[13, 1, 75.44205388467888, 21.763740504377882, -0.22119099896778208, 23, 18] (len=7)
+
+===== step 39 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=39 angular_velocity=0.03236335190859591
+#planets=32 #fleets=4 #comet_groups=0 comet_planet_ids=[]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[13, 1, 77.73802331201638, 21.24744514543491, -0.22119099896778208, 23, 18] (len=7)
+
+===== step 40 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=40 angular_velocity=0.03236335190859591
+#planets=32 #fleets=7 #comet_groups=0 comet_planet_ids=[]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[13, 1, 80.03399273935388, 20.731149786491937, -0.22119099896778208, 23, 18] (len=7)
+
+===== step 41 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=41 angular_velocity=0.03236335190859591
+#planets=32 #fleets=8 #comet_groups=0 comet_planet_ids=[]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[13, 1, 82.32996216669137, 20.214854427548964, -0.22119099896778208, 23, 18] (len=7)
+
+===== step 42 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=42 angular_velocity=0.03236335190859591
+#planets=32 #fleets=9 #comet_groups=0 comet_planet_ids=[]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[13, 1, 84.62593159402887, 19.69855906860599, -0.22119099896778208, 23, 18] (len=7)
+
+===== step 43 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=43 angular_velocity=0.03236335190859591
+#planets=32 #fleets=9 #comet_groups=0 comet_planet_ids=[]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[13, 1, 86.92190102136637, 19.18226370966302, -0.22119099896778208, 23, 18] (len=7)
+
+===== step 44 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=44 angular_velocity=0.03236335190859591
+#planets=32 #fleets=10 #comet_groups=0 comet_planet_ids=[]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[13, 1, 89.21787044870386, 18.665968350720046, -0.22119099896778208, 23, 18] (len=7)
+
+===== step 45 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=45 angular_velocity=0.03236335190859591
+#planets=32 #fleets=8 #comet_groups=0 comet_planet_ids=[]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[17, 0, 17.698527338483885, 79.85875553981586, 2.9285210613376127, 12, 78] (len=7)
+
+===== step 46 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=46 angular_velocity=0.03236335190859591
+#planets=32 #fleets=7 #comet_groups=0 comet_planet_ids=[]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[17, 0, 14.273383187791225, 80.59980497249886, 2.9285210613376127, 12, 78] (len=7)
+
+===== step 47 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=47 angular_velocity=0.03236335190859591
+#planets=32 #fleets=8 #comet_groups=0 comet_planet_ids=[]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[17, 0, 10.848239037098566, 81.34085440518186, 2.9285210613376127, 12, 78] (len=7)
+
+===== step 48 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=48 angular_velocity=0.03236335190859591
+#planets=32 #fleets=8 #comet_groups=0 comet_planet_ids=[]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[22, 0, 70.29644076830466, 29.065627267641087, 2.8821744458436527, 23, 2] (len=7)
+
+===== step 49 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=49 angular_velocity=0.03236335190859591
+#planets=32 #fleets=10 #comet_groups=0 comet_planet_ids=[]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[22, 0, 69.17629037967603, 29.362913695287286, 2.8821744458436527, 23, 2] (len=7)
+
+===== step 50 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=50 angular_velocity=0.03236335190859591
+#planets=36 #fleets=9 #comet_groups=1 comet_planet_ids=[32, 33, 34, 35]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[25, 0, 69.69066974655762, 40.75609463800795, -1.6974888011287446, 14, 150] (len=7)
+  comet[0] path_index=0(int) planet_ids=[32, 33, 34, 35] path_len=[33, 33, 33, 33]
+    paths[0][:2]=[[98.41311650884329, 32.94058196849321], [94.63457153833356, 31.691531616312965]]
+
+===== step 51 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=51 angular_velocity=0.03236335190859591
+#planets=36 #fleets=13 #comet_groups=1 comet_planet_ids=[32, 33, 34, 35]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[25, 0, 69.17402166190823, 36.6999666923043, -1.6974888011287446, 14, 150] (len=7)
+  comet[0] path_index=1(int) planet_ids=[32, 33, 34, 35] path_len=[33, 33, 33, 33]
+    paths[0][:2]=[[98.41311650884329, 32.94058196849321], [94.63457153833356, 31.691531616312965]]
+
+===== step 52 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=52 angular_velocity=0.03236335190859591
+#planets=36 #fleets=14 #comet_groups=1 comet_planet_ids=[32, 33, 34, 35]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[26, 1, 30.599642365900756, 64.72297785443234, 1.4764672043696447, 13, 216] (len=7)
+  comet[0] path_index=2(int) planet_ids=[32, 33, 34, 35] path_len=[33, 33, 33, 33]
+    paths[0][:2]=[[98.41311650884329, 32.94058196849321], [94.63457153833356, 31.691531616312965]]
+
+===== step 53 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=53 angular_velocity=0.03236335190859591
+#planets=36 #fleets=12 #comet_groups=1 comet_planet_ids=[32, 33, 34, 35]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[28, 1, 67.78717971108817, 21.66949093559099, 1.3012794209429568, 6, 32] (len=7)
+  comet[0] path_index=3(int) planet_ids=[32, 33, 34, 35] path_len=[33, 33, 33, 33]
+    paths[0][:2]=[[98.41311650884329, 32.94058196849321], [94.63457153833356, 31.691531616312965]]
+
+===== step 54 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=54 angular_velocity=0.03236335190859591
+#planets=36 #fleets=10 #comet_groups=1 comet_planet_ids=[32, 33, 34, 35]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[28, 1, 68.52656758357924, 24.346123338973612, 1.3012794209429568, 6, 32] (len=7)
+  comet[0] path_index=4(int) planet_ids=[32, 33, 34, 35] path_len=[33, 33, 33, 33]
+    paths[0][:2]=[[98.41311650884329, 32.94058196849321], [94.63457153833356, 31.691531616312965]]
+
+===== step 55 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=55 angular_velocity=0.03236335190859591
+#planets=36 #fleets=10 #comet_groups=1 comet_planet_ids=[32, 33, 34, 35]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[28, 1, 69.2659554560703, 27.022755742356235, 1.3012794209429568, 6, 32] (len=7)
+  comet[0] path_index=5(int) planet_ids=[32, 33, 34, 35] path_len=[33, 33, 33, 33]
+    paths[0][:2]=[[98.41311650884329, 32.94058196849321], [94.63457153833356, 31.691531616312965]]
+
+===== step 56 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=56 angular_velocity=0.03236335190859591
+#planets=36 #fleets=8 #comet_groups=1 comet_planet_ids=[32, 33, 34, 35]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[28, 1, 70.00534332856137, 29.699388145738858, 1.3012794209429568, 6, 32] (len=7)
+  comet[0] path_index=6(int) planet_ids=[32, 33, 34, 35] path_len=[33, 33, 33, 33]
+    paths[0][:2]=[[98.41311650884329, 32.94058196849321], [94.63457153833356, 31.691531616312965]]
+
+===== step 57 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=57 angular_velocity=0.03236335190859591
+#planets=36 #fleets=8 #comet_groups=1 comet_planet_ids=[32, 33, 34, 35]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[32, 0, 29.971931267122624, 72.4367483872869, -1.8635412955695672, 5, 36] (len=7)
+  comet[0] path_index=7(int) planet_ids=[32, 33, 34, 35] path_len=[33, 33, 33, 33]
+    paths[0][:2]=[[98.41311650884329, 32.94058196849321], [94.63457153833356, 31.691531616312965]]
+
+===== step 58 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=58 angular_velocity=0.03236335190859591
+#planets=36 #fleets=9 #comet_groups=1 comet_planet_ids=[32, 33, 34, 35]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[35, 0, 83.10195997609672, 46.14723148833522, -1.0176397034625801, 14, 31] (len=7)
+  comet[0] path_index=8(int) planet_ids=[32, 33, 34, 35] path_len=[33, 33, 33, 33]
+    paths[0][:2]=[[98.41311650884329, 32.94058196849321], [94.63457153833356, 31.691531616312965]]
+
+===== step 59 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=59 angular_velocity=0.03236335190859591
+#planets=36 #fleets=8 #comet_groups=1 comet_planet_ids=[32, 33, 34, 35]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[40, 1, 52.20563449431643, 33.87100266017197, 2.926482135949659, 15, 6] (len=7)
+  comet[0] path_index=9(int) planet_ids=[32, 33, 34, 35] path_len=[33, 33, 33, 33]
+    paths[0][:2]=[[98.41311650884329, 32.94058196849321], [94.63457153833356, 31.691531616312965]]
+
+===== step 60 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=60 angular_velocity=0.03236335190859591
+#planets=36 #fleets=12 #comet_groups=1 comet_planet_ids=[32, 33, 34, 35]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[40, 1, 50.58338751994296, 34.225449030166246, 2.926482135949659, 15, 6] (len=7)
+  comet[0] path_index=10(int) planet_ids=[32, 33, 34, 35] path_len=[33, 33, 33, 33]
+    paths[0][:2]=[[98.41311650884329, 32.94058196849321], [94.63457153833356, 31.691531616312965]]
+
+===== step 61 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=61 angular_velocity=0.03236335190859591
+#planets=36 #fleets=14 #comet_groups=1 comet_planet_ids=[32, 33, 34, 35]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[40, 1, 48.96114054556949, 34.579895400160524, 2.926482135949659, 15, 6] (len=7)
+  comet[0] path_index=11(int) planet_ids=[32, 33, 34, 35] path_len=[33, 33, 33, 33]
+    paths[0][:2]=[[98.41311650884329, 32.94058196849321], [94.63457153833356, 31.691531616312965]]
+
+===== step 62 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=62 angular_velocity=0.03236335190859591
+#planets=36 #fleets=14 #comet_groups=1 comet_planet_ids=[32, 33, 34, 35]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[40, 1, 47.338893571196024, 34.9343417701548, 2.926482135949659, 15, 6] (len=7)
+  comet[0] path_index=12(int) planet_ids=[32, 33, 34, 35] path_len=[33, 33, 33, 33]
+    paths[0][:2]=[[98.41311650884329, 32.94058196849321], [94.63457153833356, 31.691531616312965]]
+
+===== step 63 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=63 angular_velocity=0.03236335190859591
+#planets=36 #fleets=12 #comet_groups=1 comet_planet_ids=[32, 33, 34, 35]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[40, 1, 45.71664659682256, 35.28878814014908, 2.926482135949659, 15, 6] (len=7)
+  comet[0] path_index=13(int) planet_ids=[32, 33, 34, 35] path_len=[33, 33, 33, 33]
+    paths[0][:2]=[[98.41311650884329, 32.94058196849321], [94.63457153833356, 31.691531616312965]]
+
+===== step 64 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=64 angular_velocity=0.03236335190859591
+#planets=36 #fleets=10 #comet_groups=1 comet_planet_ids=[32, 33, 34, 35]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[46, 0, 83.63150208638721, 48.56288211826987, 0.8577663338853574, 15, 17] (len=7)
+  comet[0] path_index=14(int) planet_ids=[32, 33, 34, 35] path_len=[33, 33, 33, 33]
+    paths[0][:2]=[[98.41311650884329, 32.94058196849321], [94.63457153833356, 31.691531616312965]]
+
+===== step 65 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=65 angular_velocity=0.03236335190859591
+#planets=36 #fleets=9 #comet_groups=1 comet_planet_ids=[32, 33, 34, 35]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[47, 1, 38.02871231738837, 22.90654209138559, 0.6326525511243264, 19, 32] (len=7)
+  comet[0] path_index=15(int) planet_ids=[32, 33, 34, 35] path_len=[33, 33, 33, 33]
+    paths[0][:2]=[[98.41311650884329, 32.94058196849321], [94.63457153833356, 31.691531616312965]]
+
+===== step 66 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=66 angular_velocity=0.03236335190859591
+#planets=36 #fleets=9 #comet_groups=1 comet_planet_ids=[32, 33, 34, 35]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[52, 0, 73.05187374883953, 48.971181272725545, -1.2120385224998058, 14, 52] (len=7)
+  comet[0] path_index=16(int) planet_ids=[32, 33, 34, 35] path_len=[33, 33, 33, 33]
+    paths[0][:2]=[[98.41311650884329, 32.94058196849321], [94.63457153833356, 31.691531616312965]]
+
+===== step 67 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=67 angular_velocity=0.03236335190859591
+#planets=36 #fleets=11 #comet_groups=1 comet_planet_ids=[32, 33, 34, 35]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[52, 0, 74.16245447477404, 46.00951676898809, -1.2120385224998058, 14, 52] (len=7)
+  comet[0] path_index=17(int) planet_ids=[32, 33, 34, 35] path_len=[33, 33, 33, 33]
+    paths[0][:2]=[[98.41311650884329, 32.94058196849321], [94.63457153833356, 31.691531616312965]]
+
+===== step 68 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=68 angular_velocity=0.03236335190859591
+#planets=36 #fleets=14 #comet_groups=1 comet_planet_ids=[32, 33, 34, 35]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[56, 0, 83.80928311723702, 66.33928829356596, -1.4953350298638977, 16, 36] (len=7)
+  comet[0] path_index=18(int) planet_ids=[32, 33, 34, 35] path_len=[33, 33, 33, 33]
+    paths[0][:2]=[[98.41311650884329, 32.94058196849321], [94.63457153833356, 31.691531616312965]]
+
+===== step 69 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=69 angular_velocity=0.03236335190859591
+#planets=36 #fleets=19 #comet_groups=1 comet_planet_ids=[32, 33, 34, 35]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[56, 0, 84.0255177267932, 63.47922598632887, -1.4953350298638977, 16, 36] (len=7)
+  comet[0] path_index=19(int) planet_ids=[32, 33, 34, 35] path_len=[33, 33, 33, 33]
+    paths[0][:2]=[[98.41311650884329, 32.94058196849321], [94.63457153833356, 31.691531616312965]]
+
+===== step 70 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=70 angular_velocity=0.03236335190859591
+#planets=36 #fleets=20 #comet_groups=1 comet_planet_ids=[32, 33, 34, 35]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[56, 0, 84.24175233634938, 60.619163679091784, -1.4953350298638977, 16, 36] (len=7)
+  comet[0] path_index=20(int) planet_ids=[32, 33, 34, 35] path_len=[33, 33, 33, 33]
+    paths[0][:2]=[[98.41311650884329, 32.94058196849321], [94.63457153833356, 31.691531616312965]]
+
+===== step 71 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=71 angular_velocity=0.03236335190859591
+#planets=36 #fleets=21 #comet_groups=1 comet_planet_ids=[32, 33, 34, 35]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[57, 1, 81.3561645238442, 55.50254621279555, 1.1449595992001473, 15, 6] (len=7)
+  comet[0] path_index=21(int) planet_ids=[32, 33, 34, 35] path_len=[33, 33, 33, 33]
+    paths[0][:2]=[[98.41311650884329, 32.94058196849321], [94.63457153833356, 31.691531616312965]]
+
+===== step 72 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=72 angular_velocity=0.03236335190859591
+#planets=36 #fleets=22 #comet_groups=1 comet_planet_ids=[32, 33, 34, 35]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[57, 1, 82.04209584463794, 57.014768318909645, 1.1449595992001473, 15, 6] (len=7)
+  comet[0] path_index=22(int) planet_ids=[32, 33, 34, 35] path_len=[33, 33, 33, 33]
+    paths[0][:2]=[[98.41311650884329, 32.94058196849321], [94.63457153833356, 31.691531616312965]]
+
+===== step 73 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=73 angular_velocity=0.03236335190859591
+#planets=36 #fleets=21 #comet_groups=1 comet_planet_ids=[32, 33, 34, 35]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[57, 1, 82.72802716543168, 58.52699042502374, 1.1449595992001473, 15, 6] (len=7)
+  comet[0] path_index=23(int) planet_ids=[32, 33, 34, 35] path_len=[33, 33, 33, 33]
+    paths[0][:2]=[[98.41311650884329, 32.94058196849321], [94.63457153833356, 31.691531616312965]]
+
+===== step 74 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=74 angular_velocity=0.03236335190859591
+#planets=36 #fleets=14 #comet_groups=1 comet_planet_ids=[32, 33, 34, 35]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[58, 1, 80.74463359870929, 58.86201778106021, 1.2331878333226358, 15, 5] (len=7)
+  comet[0] path_index=24(int) planet_ids=[32, 33, 34, 35] path_len=[33, 33, 33, 33]
+    paths[0][:2]=[[98.41311650884329, 32.94058196849321], [94.63457153833356, 31.691531616312965]]
+
+===== step 75 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=75 angular_velocity=0.03236335190859591
+#planets=36 #fleets=14 #comet_groups=1 comet_planet_ids=[32, 33, 34, 35]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[58, 1, 81.26211999375676, 60.33613475964195, 1.2331878333226358, 15, 5] (len=7)
+  comet[0] path_index=25(int) planet_ids=[32, 33, 34, 35] path_len=[33, 33, 33, 33]
+    paths[0][:2]=[[98.41311650884329, 32.94058196849321], [94.63457153833356, 31.691531616312965]]
+
+===== step 76 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=76 angular_velocity=0.03236335190859591
+#planets=36 #fleets=18 #comet_groups=1 comet_planet_ids=[32, 33, 34, 35]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[58, 1, 81.77960638880423, 61.81025173822369, 1.2331878333226358, 15, 5] (len=7)
+  comet[0] path_index=26(int) planet_ids=[32, 33, 34, 35] path_len=[33, 33, 33, 33]
+    paths[0][:2]=[[98.41311650884329, 32.94058196849321], [94.63457153833356, 31.691531616312965]]
+
+===== step 77 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=77 angular_velocity=0.03236335190859591
+#planets=36 #fleets=18 #comet_groups=1 comet_planet_ids=[32, 33, 34, 35]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[59, 1, 81.38081246054517, 62.8323823845629, 1.2655511852312313, 15, 5] (len=7)
+  comet[0] path_index=27(int) planet_ids=[32, 33, 34, 35] path_len=[33, 33, 33, 33]
+    paths[0][:2]=[[98.41311650884329, 32.94058196849321], [94.63457153833356, 31.691531616312965]]
+
+===== step 78 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=78 angular_velocity=0.03236335190859591
+#planets=36 #fleets=21 #comet_groups=1 comet_planet_ids=[32, 33, 34, 35]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[69, 1, 26.211684888988835, 49.845383967145544, -2.527527477998481, 34, 10] (len=7)
+  comet[0] path_index=28(int) planet_ids=[32, 33, 34, 35] path_len=[33, 33, 33, 33]
+    paths[0][:2]=[[98.41311650884329, 32.94058196849321], [94.63457153833356, 31.691531616312965]]
+
+===== step 79 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=79 angular_velocity=0.03236335190859591
+#planets=36 #fleets=22 #comet_groups=1 comet_planet_ids=[32, 33, 34, 35]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[76, 0, 53.5198160585241, 79.33608392835022, -2.730659189837352, 16, 35] (len=7)
+  comet[0] path_index=29(int) planet_ids=[32, 33, 34, 35] path_len=[33, 33, 33, 33]
+    paths[0][:2]=[[98.41311650884329, 32.94058196849321], [94.63457153833356, 31.691531616312965]]
+
+===== step 80 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=80 angular_velocity=0.03236335190859591
+#planets=36 #fleets=23 #comet_groups=1 comet_planet_ids=[32, 33, 34, 35]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[76, 0, 50.91053176057666, 78.19911059337043, -2.730659189837352, 16, 35] (len=7)
+  comet[0] path_index=30(int) planet_ids=[32, 33, 34, 35] path_len=[33, 33, 33, 33]
+    paths[0][:2]=[[98.41311650884329, 32.94058196849321], [94.63457153833356, 31.691531616312965]]
+
+===== step 81 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=81 angular_velocity=0.03236335190859591
+#planets=36 #fleets=24 #comet_groups=1 comet_planet_ids=[32, 33, 34, 35]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[86, 0, 57.38914926909077, 27.04991709275326, -2.313566246620061, 15, 89] (len=7)
+  comet[0] path_index=31(int) planet_ids=[32, 33, 34, 35] path_len=[33, 33, 33, 33]
+    paths[0][:2]=[[98.41311650884329, 32.94058196849321], [94.63457153833356, 31.691531616312965]]
+
+===== step 82 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=82 angular_velocity=0.03236335190859591
+#planets=36 #fleets=26 #comet_groups=1 comet_planet_ids=[32, 33, 34, 35]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[88, 0, 16.640896457845365, 61.61568988279558, -1.1805753010794577, 17, 32] (len=7)
+  comet[0] path_index=32(int) planet_ids=[32, 33, 34, 35] path_len=[33, 33, 33, 33]
+    paths[0][:2]=[[98.41311650884329, 32.94058196849321], [94.63457153833356, 31.691531616312965]]
+
+===== step 83 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=83 angular_velocity=0.03236335190859591
+#planets=32 #fleets=28 #comet_groups=0 comet_planet_ids=[]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[88, 0, 17.69720122686041, 59.04756300045881, -1.1805753010794577, 17, 32] (len=7)
+
+===== step 84 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=84 angular_velocity=0.03236335190859591
+#planets=32 #fleets=28 #comet_groups=0 comet_planet_ids=[]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[88, 0, 18.753505995875457, 56.47943611812204, -1.1805753010794577, 17, 32] (len=7)
+
+===== step 85 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=85 angular_velocity=0.03236335190859591
+#planets=32 #fleets=24 #comet_groups=0 comet_planet_ids=[]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[88, 0, 19.809810764890504, 53.91130923578527, -1.1805753010794577, 17, 32] (len=7)
+
+===== step 86 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=86 angular_velocity=0.03236335190859591
+#planets=32 #fleets=25 #comet_groups=0 comet_planet_ids=[]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[88, 0, 20.86611553390555, 51.3431823534485, -1.1805753010794577, 17, 32] (len=7)
+
+===== step 87 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=87 angular_velocity=0.03236335190859591
+#planets=32 #fleets=25 #comet_groups=0 comet_planet_ids=[]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[88, 0, 21.922420302920596, 48.77505547111173, -1.1805753010794577, 17, 32] (len=7)
+
+===== step 88 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=88 angular_velocity=0.03236335190859591
+#planets=32 #fleets=30 #comet_groups=0 comet_planet_ids=[]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[88, 0, 22.978725071935642, 46.20692858877496, -1.1805753010794577, 17, 32] (len=7)
+
+===== step 89 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=89 angular_velocity=0.03236335190859591
+#planets=32 #fleets=32 #comet_groups=0 comet_planet_ids=[]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[88, 0, 24.03502984095069, 43.63880170643819, -1.1805753010794577, 17, 32] (len=7)
+
+===== step 90 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=90 angular_velocity=0.03236335190859591
+#planets=32 #fleets=35 #comet_groups=0 comet_planet_ids=[]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[111, 1, 59.21610521206748, 84.23102236847039, -0.40205851435670403, 32, 1] (len=7)
+
+===== step 91 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=91 angular_velocity=0.03236335190859591
+#planets=32 #fleets=33 #comet_groups=0 comet_planet_ids=[]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[111, 1, 60.1363626318994, 83.83970883529743, -0.40205851435670403, 32, 1] (len=7)
+
+===== step 92 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=92 angular_velocity=0.03236335190859591
+#planets=32 #fleets=35 #comet_groups=0 comet_planet_ids=[]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[111, 1, 61.05662005173132, 83.44839530212447, -0.40205851435670403, 32, 1] (len=7)
+
+===== step 93 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=93 angular_velocity=0.03236335190859591
+#planets=32 #fleets=37 #comet_groups=0 comet_planet_ids=[]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[111, 1, 61.97687747156324, 83.0570817689515, -0.40205851435670403, 32, 1] (len=7)
+
+===== step 94 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=94 angular_velocity=0.03236335190859591
+#planets=32 #fleets=42 #comet_groups=0 comet_planet_ids=[]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[111, 1, 62.89713489139516, 82.66576823577854, -0.40205851435670403, 32, 1] (len=7)
+
+===== step 95 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=95 angular_velocity=0.03236335190859591
+#planets=32 #fleets=44 #comet_groups=0 comet_planet_ids=[]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[111, 1, 63.81739231122708, 82.27445470260558, -0.40205851435670403, 32, 1] (len=7)
+
+===== step 96 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=96 angular_velocity=0.03236335190859591
+#planets=32 #fleets=46 #comet_groups=0 comet_planet_ids=[]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[111, 1, 64.737649731059, 81.88314116943262, -0.40205851435670403, 32, 1] (len=7)
+
+===== step 97 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=97 angular_velocity=0.03236335190859591
+#planets=32 #fleets=49 #comet_groups=0 comet_planet_ids=[]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[111, 1, 65.6579071508909, 81.49182763625966, -0.40205851435670403, 32, 1] (len=7)
+
+===== step 98 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=98 angular_velocity=0.03236335190859591
+#planets=32 #fleets=48 #comet_groups=0 comet_planet_ids=[]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[122, 1, 65.64780450730935, 81.5505657370075, -0.8282056728436406, 32, 1] (len=7)
+
+===== step 99 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=99 angular_velocity=0.03236335190859591
+#planets=32 #fleets=46 #comet_groups=0 comet_planet_ids=[]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[127, 1, 73.92160055198488, 93.56747824643922, -0.23026936365724732, 32, 1] (len=7)
+
+===== step 100 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=100 angular_velocity=0.03236335190859591
+#planets=32 #fleets=48 #comet_groups=0 comet_planet_ids=[]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[127, 1, 74.89520550280844, 93.33923846083677, -0.23026936365724732, 32, 1] (len=7)
+
+===== step 101 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=101 angular_velocity=0.03236335190859591
+#planets=32 #fleets=50 #comet_groups=0 comet_planet_ids=[]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[127, 1, 75.868810453632, 93.11099867523431, -0.23026936365724732, 32, 1] (len=7)
+
+===== step 102 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=102 angular_velocity=0.03236335190859591
+#planets=32 #fleets=53 #comet_groups=0 comet_planet_ids=[]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[127, 1, 76.84241540445555, 92.88275888963186, -0.23026936365724732, 32, 1] (len=7)
+
+===== step 103 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=103 angular_velocity=0.03236335190859591
+#planets=32 #fleets=57 #comet_groups=0 comet_planet_ids=[]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[127, 1, 77.81602035527911, 92.6545191040294, -0.23026936365724732, 32, 1] (len=7)
+
+===== step 104 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=104 angular_velocity=0.03236335190859591
+#planets=32 #fleets=60 #comet_groups=0 comet_planet_ids=[]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[127, 1, 78.78962530610266, 92.42627931842695, -0.23026936365724732, 32, 1] (len=7)
+
+===== step 105 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=105 angular_velocity=0.03236335190859591
+#planets=32 #fleets=67 #comet_groups=0 comet_planet_ids=[]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[163, 0, 33.73563410496725, 39.10826513141498, -1.2771804567313358, 22, 21] (len=7)
+
+===== step 106 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=106 angular_velocity=0.03236335190859591
+#planets=32 #fleets=70 #comet_groups=0 comet_planet_ids=[]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[163, 0, 34.44846288119837, 36.7506756700988, -1.2771804567313358, 22, 21] (len=7)
+
+===== step 107 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=107 angular_velocity=0.03236335190859591
+#planets=32 #fleets=78 #comet_groups=0 comet_planet_ids=[]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[163, 0, 35.16129165742949, 34.39308620878262, -1.2771804567313358, 22, 21] (len=7)
+
+===== step 108 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=108 angular_velocity=0.03236335190859591
+#planets=32 #fleets=79 #comet_groups=0 comet_planet_ids=[]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[163, 0, 35.87412043366061, 32.03549674746644, -1.2771804567313358, 22, 21] (len=7)
+
+===== step 109 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=109 angular_velocity=0.03236335190859591
+#planets=32 #fleets=78 #comet_groups=0 comet_planet_ids=[]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[197, 1, 20.845920818021938, 10.718825685827166, -2.4181926005146357, 20, 1] (len=7)
+
+===== step 110 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=110 angular_velocity=0.03236335190859591
+#planets=32 #fleets=86 #comet_groups=0 comet_planet_ids=[]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[197, 1, 20.09636137301168, 10.056888650758186, -2.4181926005146357, 20, 1] (len=7)
+
+===== step 111 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=111 angular_velocity=0.03236335190859591
+#planets=32 #fleets=88 #comet_groups=0 comet_planet_ids=[]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[201, 0, 54.40770052541467, 86.10510316637308, -2.940804133335496, 16, 8] (len=7)
+
+===== step 112 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=112 angular_velocity=0.03236335190859591
+#planets=32 #fleets=91 #comet_groups=0 comet_planet_ids=[]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[201, 0, 52.61856331311348, 85.7409581220069, -2.940804133335496, 16, 8] (len=7)
+
+===== step 113 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=113 angular_velocity=0.03236335190859591
+#planets=32 #fleets=94 #comet_groups=0 comet_planet_ids=[]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[219, 0, 36.947661967479455, 33.358788427218556, -1.0228431307668782, 22, 30] (len=7)
+
+===== step 114 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=114 angular_velocity=0.03236335190859591
+#planets=32 #fleets=92 #comet_groups=0 comet_planet_ids=[]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[219, 0, 38.36851721115003, 31.030634078697904, -1.0228431307668782, 22, 30] (len=7)
+
+===== step 115 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=115 angular_velocity=0.03236335190859591
+#planets=32 #fleets=93 #comet_groups=0 comet_planet_ids=[]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[219, 0, 39.7893724548206, 28.702479730177252, -1.0228431307668782, 22, 30] (len=7)
+
+===== step 116 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=116 angular_velocity=0.03236335190859591
+#planets=32 #fleets=97 #comet_groups=0 comet_planet_ids=[]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[221, 1, 83.58798472155814, 42.4719736483022, 1.8921666406181399, 18, 4] (len=7)
+
+===== step 117 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=117 angular_velocity=0.03236335190859591
+#planets=32 #fleets=93 #comet_groups=0 comet_planet_ids=[]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[221, 1, 83.13012957254442, 43.84728203468006, 1.8921666406181399, 18, 4] (len=7)
+
+===== step 118 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=118 angular_velocity=0.03236335190859591
+#planets=32 #fleets=98 #comet_groups=0 comet_planet_ids=[]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[221, 1, 82.6722744235307, 45.22259042105792, 1.8921666406181399, 18, 4] (len=7)
+
+===== step 119 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=119 angular_velocity=0.03236335190859591
+#planets=32 #fleets=100 #comet_groups=0 comet_planet_ids=[]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[221, 1, 82.21441927451697, 46.59789880743578, 1.8921666406181399, 18, 4] (len=7)
+
+===== step 120 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=120 angular_velocity=0.03236335190859591
+#planets=32 #fleets=95 #comet_groups=0 comet_planet_ids=[]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[221, 1, 81.75656412550325, 47.97320719381364, 1.8921666406181399, 18, 4] (len=7)
+
+===== step 121 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=121 angular_velocity=0.03236335190859591
+#planets=32 #fleets=95 #comet_groups=0 comet_planet_ids=[]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[221, 1, 81.29870897648952, 49.3485155801915, 1.8921666406181399, 18, 4] (len=7)
+
+===== step 122 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=122 angular_velocity=0.03236335190859591
+#planets=32 #fleets=97 #comet_groups=0 comet_planet_ids=[]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[221, 1, 80.8408538274758, 50.72382396656936, 1.8921666406181399, 18, 4] (len=7)
+
+===== step 123 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=123 angular_velocity=0.03236335190859591
+#planets=32 #fleets=92 #comet_groups=0 comet_planet_ids=[]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[221, 1, 80.38299867846207, 52.09913235294722, 1.8921666406181399, 18, 4] (len=7)
+
+===== step 124 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=124 angular_velocity=0.03236335190859591
+#planets=32 #fleets=99 #comet_groups=0 comet_planet_ids=[]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[221, 1, 79.92514352944835, 53.47444073932508, 1.8921666406181399, 18, 4] (len=7)
+
+===== step 125 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=125 angular_velocity=0.03236335190859591
+#planets=32 #fleets=100 #comet_groups=0 comet_planet_ids=[]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[221, 1, 79.46728838043462, 54.84974912570294, 1.8921666406181399, 18, 4] (len=7)
+
+===== step 126 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=126 angular_velocity=0.03236335190859591
+#planets=32 #fleets=103 #comet_groups=0 comet_planet_ids=[]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[221, 1, 79.0094332314209, 56.2250575120808, 1.8921666406181399, 18, 4] (len=7)
+
+===== step 127 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=127 angular_velocity=0.03236335190859591
+#planets=32 #fleets=105 #comet_groups=0 comet_planet_ids=[]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[221, 1, 78.55157808240718, 57.60036589845866, 1.8921666406181399, 18, 4] (len=7)
+
+===== step 128 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=128 angular_velocity=0.03236335190859591
+#planets=32 #fleets=107 #comet_groups=0 comet_planet_ids=[]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[221, 1, 78.09372293339345, 58.97567428483652, 1.8921666406181399, 18, 4] (len=7)
+
+===== step 129 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=129 angular_velocity=0.03236335190859591
+#planets=32 #fleets=110 #comet_groups=0 comet_planet_ids=[]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[221, 1, 77.63586778437973, 60.35098267121438, 1.8921666406181399, 18, 4] (len=7)
+
+===== step 130 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=130 angular_velocity=0.03236335190859591
+#planets=32 #fleets=115 #comet_groups=0 comet_planet_ids=[]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[221, 1, 77.178012635366, 61.72629105759224, 1.8921666406181399, 18, 4] (len=7)
+
+===== step 131 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=131 angular_velocity=0.03236335190859591
+#planets=32 #fleets=114 #comet_groups=0 comet_planet_ids=[]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[221, 1, 76.72015748635228, 63.1015994439701, 1.8921666406181399, 18, 4] (len=7)
+
+===== step 132 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=132 angular_velocity=0.03236335190859591
+#planets=32 #fleets=116 #comet_groups=0 comet_planet_ids=[]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[221, 1, 76.26230233733855, 64.47690783034795, 1.8921666406181399, 18, 4] (len=7)
+
+===== step 133 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=133 angular_velocity=0.03236335190859591
+#planets=32 #fleets=120 #comet_groups=0 comet_planet_ids=[]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[221, 1, 75.80444718832483, 65.85221621672581, 1.8921666406181399, 18, 4] (len=7)
+
+===== step 134 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=134 angular_velocity=0.03236335190859591
+#planets=32 #fleets=120 #comet_groups=0 comet_planet_ids=[]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[221, 1, 75.3465920393111, 67.22752460310366, 1.8921666406181399, 18, 4] (len=7)
+
+===== step 135 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=135 angular_velocity=0.03236335190859591
+#planets=32 #fleets=120 #comet_groups=0 comet_planet_ids=[]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[221, 1, 74.88873689029738, 68.60283298948151, 1.8921666406181399, 18, 4] (len=7)
+
+===== step 136 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=136 angular_velocity=0.03236335190859591
+#planets=32 #fleets=118 #comet_groups=0 comet_planet_ids=[]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[221, 1, 74.43088174128366, 69.97814137585937, 1.8921666406181399, 18, 4] (len=7)
+
+===== step 137 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=137 angular_velocity=0.03236335190859591
+#planets=32 #fleets=123 #comet_groups=0 comet_planet_ids=[]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[221, 1, 73.97302659226993, 71.35344976223722, 1.8921666406181399, 18, 4] (len=7)
+
+===== step 138 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=138 angular_velocity=0.03236335190859591
+#planets=32 #fleets=123 #comet_groups=0 comet_planet_ids=[]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[221, 1, 73.51517144325621, 72.72875814861507, 1.8921666406181399, 18, 4] (len=7)
+
+===== step 139 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=139 angular_velocity=0.03236335190859591
+#planets=32 #fleets=124 #comet_groups=0 comet_planet_ids=[]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[221, 1, 73.05731629424248, 74.10406653499292, 1.8921666406181399, 18, 4] (len=7)
+
+===== step 140 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=140 angular_velocity=0.03236335190859591
+#planets=32 #fleets=127 #comet_groups=0 comet_planet_ids=[]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[221, 1, 72.59946114522876, 75.47937492137078, 1.8921666406181399, 18, 4] (len=7)
+
+===== step 141 =====
+keys=['angular_velocity', 'comet_planet_ids', 'comets', 'fleets', 'initial_planets', 'next_fleet_id', 'planets', 'player', 'remainingOverageTime', 'step']
+player=0 step=141 angular_velocity=0.03236335190859591
+#planets=32 #fleets=123 #comet_groups=0 comet_planet_ids=[]
+planet[0]=[0, -1, 89.17877374144791, 80.53099127547915, 1.6931471805599454, 58, 2] (len=7)
+fleet[0]=[259, 0, 25.297978447360084, 70.90914689729662, -2.789544746307903, 16, 5] (len=7)

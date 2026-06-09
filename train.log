@@ -1,0 +1,34 @@
+replays: 4899 -> ['data\\78559827.json', 'data\\78667073.json', 'data\\78667117.json', 'data\\78667125.json', 'data\\78667131.json']...
+training examples (steps): 1070337
+device: cuda
+epoch   1  loss=810926.6708  target_ce=810674.4265  ship_mse=252244.2237
+epoch   2  loss=811028.1373  target_ce=810773.5853  ship_mse=254551.7960
+epoch   3  loss=811230.2539  target_ce=810977.4199  ship_mse=252834.2088
+epoch   4  loss=811206.4838  target_ce=810954.8860  ship_mse=251597.6138
+epoch   5  loss=811106.2797  target_ce=810852.6792  ship_mse=253599.8347
+epoch   6  loss=810957.0736  target_ce=810708.7939  ship_mse=248279.4513
+epoch   7  loss=810825.5455  target_ce=810602.3260  ship_mse=223219.8597
+epoch   8  loss=811872.4095  target_ce=811658.6169  ship_mse=213792.6881
+epoch   9  loss=811184.2593  target_ce=810971.3998  ship_mse=212859.6447
+epoch  10  loss=811977.9680  target_ce=811765.5517  ship_mse=212416.5272
+epoch  11  loss=811011.7641  target_ce=810797.6753  ship_mse=214088.5860
+epoch  12  loss=811408.8679  target_ce=811196.6034  ship_mse=212264.4825
+epoch  13  loss=811150.3522  target_ce=810940.5092  ship_mse=209843.4512
+epoch  14  loss=812059.0317  target_ce=811849.1255  ship_mse=209906.4509
+epoch  15  loss=811712.6692  target_ce=811504.5066  ship_mse=208162.7286
+epoch  16  loss=811267.9759  target_ce=811058.0503  ship_mse=209925.8766
+epoch  17  loss=810595.0780  target_ce=810382.3703  ship_mse=212707.9989
+epoch  18  loss=810574.3482  target_ce=810354.8092  ship_mse=219539.1025
+epoch  19  loss=810741.3369  target_ce=810524.9126  ship_mse=216423.8801
+epoch  20  loss=810871.7907  target_ce=810658.8671  ship_mse=212924.4075
+epoch  21  loss=811499.7340  target_ce=811283.6554  ship_mse=216078.8483
+epoch  22  loss=811434.9822  target_ce=811220.4432  ship_mse=214538.6158
+epoch  23  loss=811129.4048  target_ce=810914.2562  ship_mse=215148.4980
+epoch  24  loss=812703.5849  target_ce=812480.7543  ship_mse=222830.0250
+epoch  25  loss=811651.5662  target_ce=811428.9029  ship_mse=222663.5070
+epoch  26  loss=810697.1407  target_ce=810467.0078  ship_mse=230133.3137
+epoch  27  loss=810593.3085  target_ce=810376.2800  ship_mse=217028.9123
+epoch  28  loss=812605.2126  target_ce=812391.1310  ship_mse=214082.1435
+epoch  29  loss=812077.9970  target_ce=811862.8702  ship_mse=215126.4276
+epoch  30  loss=811278.5777  target_ce=811062.1797  ship_mse=216398.2001
+saved orbit_net.pt

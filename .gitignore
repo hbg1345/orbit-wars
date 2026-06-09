@@ -1,1 +1,24 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.ipynb_checkpoints/
+
+# Environments
 /venv/
+.venv/
+env/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Data (replays / parsed datasets / memmap caches -- usually large)
+data/
+
+# Model checkpoints (.pt) are kept in the repo on purpose (small here).
+
+# Plots / generated figures -- uncomment to stop tracking them.
+# *.png
