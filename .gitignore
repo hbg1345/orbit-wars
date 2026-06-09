@@ -19,7 +19,8 @@ Thumbs.db
 data/parsed_cache/
 data/zips/
 
-# Model checkpoints (.pt) are kept in the repo on purpose (small here).
+# Model checkpoints / RL pool snapshots (orbit_net*.pt, rl_pool/snap*.pt)
+*.pt
 
 # Plots / generated figures -- uncomment to stop tracking them.
 # *.png
