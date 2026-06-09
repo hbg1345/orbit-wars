@@ -27,7 +27,7 @@ NEG_INF = -1e9
 
 
 class OrbitNet(nn.Module):
-    def __init__(self, d_model=128, n_heads=4, n_layers=4, dropout=0.0):
+    def __init__(self, d_model=192, n_heads=4, n_layers=6, dropout=0.0):
         super().__init__()
         self.d_model = d_model
 
