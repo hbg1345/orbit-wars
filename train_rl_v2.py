@@ -31,7 +31,7 @@ LR = 1e-5
 VALUE_COEF = 0.5
 
 # [1] 엔트로피 붕괴(Collapse)를 막기 위해 0.01 보너스 추가
-ENTROPY_COEF = 0.01                 
+ENTROPY_COEF = 0.02
 KL_COEF = 0.05                     
 MINIBATCH = 1024
 
@@ -43,7 +43,7 @@ PPO_EPOCHS = 4
 EVAL_EVERY = 2
 
 # [3] 카타스트로픽 망각을 막기 위한 League Pool 확장
-POOL_SIZE = 20
+POOL_SIZE = 50
 N_OPP = 3
 
 # PFSP (Prioritized Fictitious Self-Play): sample pool opponents weighted by how
@@ -98,19 +98,41 @@ def pfsp_weight(entry):
     return max(PFSP_EPS, (1.0 - winrate) ** PFSP_P)
 
 
+def parity_winrate(g2, g4):
+    """Expected sole-winner rate for an equally-skilled player given the game
+    mix: 1/2 per 2-player game, 1/4 per 4-player game. Used as the snapshot-save
+    gate so 'better than parity' adapts to the 2p:4p ratio instead of a hardcode."""
+    n = g2 + g4
+    return (g2 * 0.5 + g4 * 0.25) / n if n else 0.0
+
+
 def to_action(decisions, obs, ids, ships):
     # Thin wrapper over the shared aiming/launch geometry (physics), kept for the
     # (decisions, obs, ...) arg order used by play_game and profile_rollout.
     return decisions_to_moves(obs, decisions, ids, ships, kmax=K_MAX_GLOBAL)
 
 
-def _ship_share(obs, me):
+def _lead_margin(obs, me):
+    # Lead over the strongest rival as a fraction of all ships on the board:
+    # (my ships - best opponent's ships) / total. Per-step deltas of this reward
+    # EXTENDING a lead / closing a gap, which matches the real objective (be #1)
+    # far better than raw share -- especially in 4p, where maximising global
+    # share can keep rewarding an already-winning player. In 2p it reduces to
+    # 2*share - 1, so 2p behaviour is preserved (just scaled). owner -1 = neutral.
     planets = obs.get("planets", []) or []
     fleets = obs.get("fleets", []) or []
-    mine = (sum(p[5] for p in planets if p[1] == me)
-            + sum(f[6] for f in fleets if f[1] == me))
-    total = sum(p[5] for p in planets) + sum(f[6] for f in fleets)
-    return (mine / total) if total > 0 else 0.0
+    by_owner = {}
+    for p in planets:
+        by_owner[p[1]] = by_owner.get(p[1], 0.0) + p[5]
+    for f in fleets:
+        by_owner[f[1]] = by_owner.get(f[1], 0.0) + f[6]
+    total = sum(by_owner.values())
+    if total <= 0:
+        return 0.0
+    mine = by_owner.get(me, 0.0)
+    others = [v for o, v in by_owner.items() if o >= 0 and o != me]
+    best_other = max(others) if others else 0.0
+    return (mine - best_other) / total
 
 
 def play_game(nets, record_seats=None, greedy_seats=None):
@@ -134,7 +156,7 @@ def play_game(nets, record_seats=None, greedy_seats=None):
             if p in keep:                                  
                 decisions, rec = nets[p].act_rl(feats, valid, mine)
                 data[p].append((feats, valid, mine, rec))
-                before[p] = _ship_share(obs, p)            
+                before[p] = _lead_margin(obs, p)
             elif p in greedy_seats:                        
                 decisions = nets[p].act(feats, valid, mine, greedy=True,
                                         gate_threshold=GATE_THRESHOLD)
@@ -143,7 +165,7 @@ def play_game(nets, record_seats=None, greedy_seats=None):
             actions.append(to_action(decisions, obs, ids, ships))
         env.step(actions)
         for p in keep:                                     
-            shaped[p].append(_ship_share(env.state[p]["observation"], p) - before[p])
+            shaped[p].append(_lead_margin(env.state[p]["observation"], p) - before[p])
     rewards = [float(env.state[p]["reward"] or 0.0) for p in range(n)]
     return data, rewards, shaped
 
@@ -198,10 +220,12 @@ def _rollout_one(payload):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--iters", type=int, default=2000)
-    ap.add_argument("--games", type=int, default=50)
-    ap.add_argument("--eval-games", type=int, default=20, help="games per iter for pure greedy evaluation")
+    ap.add_argument("--games", type=int, default=60)
+    ap.add_argument("--eval-games", type=int, default=30, help="games per iter for pure greedy evaluation")
     ap.add_argument("--workers", type=int, default=min(8, os.cpu_count() or 1))
-    ap.add_argument("--win-gate", type=float, default=0.44)
+    ap.add_argument("--win-gate", type=float, default=None,
+                    help="absolute win-rate gate to save a snapshot; default None "
+                         "= use the parity (expected) win rate for the game mix")
     ap.add_argument("--shape-coef", type=float, default=1.0)
     args = ap.parse_args()
 
@@ -283,7 +307,7 @@ def main():
 
     def make_tasks(learner_sd, is_eval=False):
         target_games = args.eval_games if is_eval else args.games
-        n4 = target_games // 4
+        n4 = target_games // 2            # 4-player games = ~1/2 (2p:4p ~ 1:1)
         n2 = target_games - n4
         tasks, tags, opp_ids = [], [], []
         cands = league()
@@ -465,8 +489,11 @@ def main():
 
             stage1_win_rate = (eval_w2 + eval_w4) / max(1, (eval_g2 + eval_g4))
 
+            # Gate = explicit override, else the parity (expected) win rate for
+            # the actual game mix this eval.
+            gate1 = args.win_gate if args.win_gate is not None else parity_winrate(eval_g2, eval_g4)
             stage2_triggered = False
-            if stage1_win_rate >= args.win_gate - 0.1:
+            if stage1_win_rate >= gate1 - 0.1:
                 stage2_triggered = True
                 for tag, _opp_id, (_, _, _, won, players) in tqdm(rollouts(is_eval=True), total=args.eval_games,
                                                                   desc="eval stage 2 (deep)", unit="game", leave=False):
@@ -499,13 +526,15 @@ def main():
                 f"{eval_str} [Tr_Win={tr_win_rate:.2f}]  "
                 f"policy={p_loss:.4f} val={v_loss:.4f} ent={e_loss:.3f} kl={avg_kl:.4f}")
 
-        if do_eval and win_rate > args.win_gate:
+        gate = (args.win_gate if args.win_gate is not None
+                else parity_winrate(eval_g2, eval_g4)) if do_eval else None
+        if do_eval and win_rate > gate:
             torch.save(net.state_dict(), RL_BEST)
             snap_sd = {k: v.detach().cpu() for k, v in net.state_dict().items()}
             best_pool.appendleft({"id": next_snap_id, "sd": snap_sd, "w": 0, "g": 0})
             next_snap_id += 1
             save_pool(best_pool)
-            line += f"  <- eval>{args.win_gate:.2f}, saved {RL_BEST} (+pool {len(best_pool)})"
+            line += f"  <- eval>{gate:.2f}, saved {RL_BEST} (+pool {len(best_pool)})"
 
         pbar.set_postfix(eval_win=(f"{win_rate:.2f}" if do_eval else "-"), vsSL=sl_str,
                          pool=len(best_pool), kl=f"{avg_kl:.3f}", ent=f"{e_loss:.2f}")

@@ -5,55 +5,42 @@ Usage:
     python run_game.py main.py random        # vs the built-in random bot
     python run_game.py main.py main.py main.py main.py   # 4-player game
     python run_game.py --games 20 main.py random         # 20 games, P0 win rate
+    python run_game.py --games 40 --workers 8 main.py random   # 40 games in parallel
 
 With --games 1 the per-step observations are dumped (obs_log.jsonl / .txt) for
-inspection; multi-game runs skip that. The LAST game is always saved to replay.html.
+inspection; multi-game runs skip that. In sequential mode (--workers 1) the LAST
+game is saved to replay.html. Parallel mode (--workers > 1) only tallies the win
+rate -- replay.html / obs dump are skipped (use --workers 1 to save them).
 """
 
 import sys
 import json
 import logging
+
 logging.disable(logging.WARNING)  # silence env-loading INFO/WARNING noise
 
 from kaggle_environments import make
 
-# ---- parse args: agents (positional) + --games N ----
-games = 1
-agents = []
-argv = iter(sys.argv[1:])
-for a in argv:
-    if a == "--games":
-        games = int(next(argv))
-    elif a.startswith("--games="):
-        games = int(a.split("=", 1)[1])
-    else:
-        agents.append(a)
-agents = agents or ["main.py", "main.py"]   # default: my model on both sides
-print(f"agents: {agents}  games: {games}")
 
-
-
-wins = draws = 0
-for g in range(games):
-    env = make("orbit_wars", debug=True)    
+def play_one(agents, keep_env=False):
+    """Run a single game; return (result, rewards) for Player 0, where result is
+    one of WIN/DRAW/LOSS. When keep_env=True also return the env (sequential only;
+    the env is NOT picklable, so workers must call with keep_env=False)."""
+    env = make("orbit_wars", debug=True)
     env.run(agents)
     rewards = [s["reward"] if s["reward"] is not None else 0 for s in env.steps[-1]]
     r0, best_other = rewards[0], max(rewards[1:])
     if r0 > best_other:
-        wins += 1; res = "WIN"
+        res = "WIN"
     elif r0 == best_other:
-        draws += 1; res = "DRAW"
+        res = "DRAW"
     else:
         res = "LOSS"
-    print(f"game {g+1}/{games}: rewards={rewards} -> P0 {res}")
+    return (res, rewards, env) if keep_env else (res, rewards)
 
-rate = wins / games
-print(f"\nPlayer 0: {wins}/{games} wins = {rate:.1%}"
-      + (f"  ({draws} draws)" if draws else ""))
 
-# Dump the last game's per-step observations only for a single-game run (so it
-# stays an inspection tool without bloating multi-game runs).
-if games == 1:
+def dump_observations(env):
+    """Dump the single game's per-step observations (inspection tool)."""
     JSONL_PATH, TXT_PATH = "obs_log.jsonl", "obs_log.txt"
     with open(JSONL_PATH, "w", encoding="utf-8") as jf, \
          open(TXT_PATH, "w", encoding="utf-8") as tf:
@@ -85,7 +72,70 @@ if games == 1:
                     tf.write(f"    paths[0][:2]={paths[0][:2]}\n")
     print(f"observations logged -> {JSONL_PATH}, {TXT_PATH} ({len(env.steps)} steps)")
 
-# Save the last game as an HTML replay you can open in a browser.
-with open("replay.html", "w", encoding="utf-8") as f:
-    f.write(env.render(mode="html", width=800, height=600))
-print("last game saved to replay.html")
+
+def main():
+    # ---- parse args: agents (positional) + --games N + --workers N ----
+    games = 1
+    workers = 1
+    agents = []
+    argv = iter(sys.argv[1:])
+    for a in argv:
+        if a == "--games":
+            games = int(next(argv))
+        elif a.startswith("--games="):
+            games = int(a.split("=", 1)[1])
+        elif a == "--workers":
+            workers = int(next(argv))
+        elif a.startswith("--workers="):
+            workers = int(a.split("=", 1)[1])
+        else:
+            agents.append(a)
+    agents = agents or ["main.py", "main.py"]   # default: my model on both sides
+    workers = max(1, min(workers, games))
+    print(f"agents: {agents}  games: {games}  workers: {workers}")
+
+    wins = draws = 0
+    last_env = None
+
+    def tally(g, res, rewards):
+        nonlocal wins, draws
+        if res == "WIN":
+            wins += 1
+        elif res == "DRAW":
+            draws += 1
+        print(f"game {g+1}/{games}: rewards={rewards} -> P0 {res}")
+
+    if workers == 1:
+        # Sequential: keep the last game's env for replay / obs dump.
+        for g in range(games):
+            keep = (g == games - 1)
+            out = play_one(agents, keep_env=keep)
+            if keep:
+                res, rewards, last_env = out
+            else:
+                res, rewards = out
+            tally(g, res, rewards)
+    else:
+        # Parallel: workers return only (res, rewards); env stays in the child.
+        from concurrent.futures import ProcessPoolExecutor
+        with ProcessPoolExecutor(max_workers=workers) as ex:
+            for g, (res, rewards) in enumerate(ex.map(play_one, [agents] * games)):
+                tally(g, res, rewards)
+
+    rate = wins / games
+    print(f"\nPlayer 0: {wins}/{games} wins = {rate:.1%}"
+          + (f"  ({draws} draws)" if draws else ""))
+
+    if last_env is not None:
+        # Single-game run also dumps per-step observations for inspection.
+        if games == 1:
+            dump_observations(last_env)
+        with open("replay.html", "w", encoding="utf-8") as f:
+            f.write(last_env.render(mode="html", width=800, height=600))
+        print("last game saved to replay.html")
+    else:
+        print("(parallel mode: replay.html / obs dump skipped; use --workers 1 to save them)")
+
+
+if __name__ == "__main__":
+    main()

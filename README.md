@@ -144,22 +144,34 @@ tar -czf submission.tar.gz main.py model.py features.py forecast.py physics.py o
 kaggle competitions submit orbit-wars -f submission.tar.gz -m "SL agent v1"
 ```
 
-RL 에이전트를 낼 때는 진입점이 `main_rl.py`이고 가중치가 `orbit_net_rl.pt`인데,
-**제출 루트의 파일명은 `main.py`여야** 하므로 그 이름으로 넣는다:
+RL 에이전트는 진입점이 `main_rl.py`이고 가중치가 `orbit_net_rl.pt`인데,
+**제출 루트의 파일명은 `main.py`여야** 한다. 루트의 `main.py`(SL 에이전트)를
+덮어쓰지 않도록, **스테이징 폴더 `rl_submission/`** 에 현재 RL 코드와 가중치를
+복사하고 그 안에서 `main_rl.py`를 `main.py`로 넣어 번들링한다:
 
 ```bash
-cp main_rl.py main.py     # 진입점을 main.py로 (또는 main_rl 내용을 main.py에)
-tar -czf submission_rl.tar.gz main.py model.py features.py forecast.py physics.py orbit_net_rl.pt
+mkdir -p rl_submission
+# 현재 학습 코드 + 가중치를 스테이징 폴더로 복사 (구버전과 섞이지 않게 매번 복사)
+cp model.py features.py forecast.py physics.py orbit_net_rl.pt rl_submission/
+cp main_rl.py rl_submission/main.py        # 진입점만 main.py로 (루트 main.py는 그대로)
+# 폴더 내부 기준(-C)으로 압축해서 main.py가 tar 루트에 오게 한다
+tar -czf submission_rl.tar.gz -C rl_submission \
+    main.py model.py features.py forecast.py physics.py orbit_net_rl.pt
 kaggle competitions submit orbit-wars -f submission_rl.tar.gz -m "RL agent v1"
 ```
 
-> 번들에 들어갈 파일은 `main.py`의 import(`model`/`features`/`forecast`/`physics`)와
-> 로드하는 `*.pt` 가중치다. 새 모듈을 추가하면 tar 목록에도 넣어야 한다.
+> 번들에 들어갈 파일은 `main.py`(=`main_rl.py`)의 import(`model`/`features`/`forecast`/`physics`)와
+> 로드하는 `*.pt` 가중치다. 새 모듈을 추가하면 복사 목록과 tar 목록 모두에 넣어야 한다.
+> **주의:** `rl_submission/`의 `.py`는 반드시 루트(학습 코드)에서 매번 복사해 동기화할 것.
+> 안 그러면 폴더에 남은 구버전 `model.py`(예: `n_layers`가 다른)로 가중치가 어긋나 로드되어
+> 망가진 에이전트가 제출된다.
 
 ### 제출 전 로컬 점검
 
 ```bash
-conda run -n orbit python run_game.py main.py random   # 에러 없이 한 판 도는지
+conda run -n orbit python run_game.py main.py random   # SL: 에러 없이 한 판 도는지
+# RL 번들 점검 (스테이징 폴더에서 그대로 실행 -> 제출과 동일한 코드/가중치):
+conda run -n orbit python run_game.py rl_submission/main.py random
 ```
 
 ### 모니터링
