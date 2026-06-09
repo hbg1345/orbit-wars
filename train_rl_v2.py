@@ -198,14 +198,19 @@ def _rollout_one(payload):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--iters", type=int, default=2000)
-    ap.add_argument("--games", type=int, default=20)
-    ap.add_argument("--eval-games", type=int, default=16, help="games per iter for pure greedy evaluation")
+    ap.add_argument("--games", type=int, default=50)
+    ap.add_argument("--eval-games", type=int, default=20, help="games per iter for pure greedy evaluation")
     ap.add_argument("--workers", type=int, default=min(8, os.cpu_count() or 1))
     ap.add_argument("--win-gate", type=float, default=0.44)
     ap.add_argument("--shape-coef", type=float, default=1.0)
     args = ap.parse_args()
 
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    if torch.cuda.is_available():
+        device = "cuda"                        # Windows/Linux + NVIDIA
+    elif torch.backends.mps.is_available():
+        device = "mps"                         # Apple Silicon GPU
+    else:
+        device = "cpu"
     net = OrbitNet().to(device)
     teacher = OrbitNet().to(device)            
     
