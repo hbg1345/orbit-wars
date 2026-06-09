@@ -21,12 +21,13 @@ from model import OrbitNet
 
 logging.disable(logging.WARNING)
 from kaggle_environments import make
-from main import _aim, _build_world, _fleet_speed, GATE_THRESHOLD, K_MAX_GLOBAL
+from main import GATE_THRESHOLD, K_MAX_GLOBAL
+from physics import decisions_to_moves
 
 # PPO & RL Hyperparameters
 GAMMA = 0.997
 GAE_LAMBDA = 0.95                  
-LR = 5e-6                          
+LR = 1e-5                          
 VALUE_COEF = 0.5
 
 # [1] 엔트로피 붕괴(Collapse)를 막기 위해 0.01 보너스 추가
@@ -42,8 +43,14 @@ PPO_EPOCHS = 4
 EVAL_EVERY = 2
 
 # [3] 카타스트로픽 망각을 막기 위한 League Pool 확장
-POOL_SIZE = 20                     
-N_OPP = 3                          
+POOL_SIZE = 20
+N_OPP = 3
+
+# PFSP (Prioritized Fictitious Self-Play): sample pool opponents weighted by how
+# HARD they are for the current learner -- weight = (1 - winrate)^PFSP_P. Opponents
+# we already crush get little play; the ones we struggle with get prioritised.
+PFSP_P = 2.0
+PFSP_EPS = 0.05                    # floor so every opponent keeps a nonzero chance
 
 SL_WEIGHTS = "orbit_net.pt"
 RL_BEST = "orbit_net_rl.pt"        
@@ -56,6 +63,9 @@ def _pool_path(i):
     return os.path.join(RL_POOL_DIR, f"snap{i}.pt")
 
 
+# A pool entry is {"id": int, "sd": state_dict, "w": wins, "g": games} -- the
+# w/g counters are the learner's record vs this snapshot, used for PFSP weighting.
+# Only the sd is persisted; stats reset on restart and re-accumulate quickly.
 def load_pool():
     dq = deque(maxlen=POOL_SIZE)
     for i in range(POOL_SIZE):
@@ -64,62 +74,34 @@ def load_pool():
             break
         sd = torch.load(p, map_location="cpu")
         try:
-            OrbitNet().load_state_dict(sd)          
+            OrbitNet().load_state_dict(sd)
         except Exception as e:
             print(f"  pool snapshot {p} incompatible, skipping ({e})")
             continue
-        dq.append(sd)
+        dq.append({"id": i, "sd": sd, "w": 0, "g": 0})
     return dq
 
 
 def save_pool(best_pool):
     os.makedirs(RL_POOL_DIR, exist_ok=True)
-    for i, sd in enumerate(best_pool):
-        torch.save(sd, _pool_path(i))
-    for i in range(len(best_pool), POOL_SIZE):       
+    for i, e in enumerate(best_pool):
+        torch.save(e["sd"], _pool_path(i))
+    for i in range(len(best_pool), POOL_SIZE):
         if os.path.exists(_pool_path(i)):
             os.remove(_pool_path(i))
 
 
+def pfsp_weight(entry):
+    """PFSP sampling weight for a pool entry: harder (lower learner winrate) ->
+    higher weight. Laplace prior so an unseen snapshot starts at winrate 0.5."""
+    winrate = (entry["w"] + 1.0) / (entry["g"] + 2.0)
+    return max(PFSP_EPS, (1.0 - winrate) ** PFSP_P)
+
+
 def to_action(decisions, obs, ids, ships):
-    # Most turns the gate launches nothing; skip the (expensive) world build and
-    # full trajectory precompute below when there is nothing to aim.
-    if not decisions:
-        return []
-
-    raw = obs.get("planets", []) if isinstance(obs, dict) else getattr(obs, "planets", [])
-    by_id = {int(p[0]): p for p in raw}
-    world = _build_world(obs)
-
-    # 매 스텝 궤적 전처리
-    world_trajectories = []
-    radii = []
-    for w in world:
-        traj = [w["predict"](k) for k in range(K_MAX_GLOBAL + 1)]
-        world_trajectories.append(traj)
-        radii.append(w["radius"])
-        
-    id_to_idx = {w["id"]: i for i, w in enumerate(world)}
-    moves = []
-    for src, tgt, frac in decisions:
-        available = float(ships[src])
-        n = min(int(round(frac * available)), int(available))
-        if n < 1:
-            continue
-            
-        spl = by_id.get(int(ids[src]))
-        target_id = int(ids[tgt])
-        
-        if spl is None or target_id not in id_to_idx:
-            continue
-            
-        target_idx = id_to_idx[target_id]
-        angle = _aim(spl, world_trajectories, radii, target_idx, _fleet_speed(n), kmax=K_MAX_GLOBAL)
-        if angle is None:
-            continue
-        moves.append([int(ids[src]), angle, n])
-        
-    return moves
+    # Thin wrapper over the shared aiming/launch geometry (physics), kept for the
+    # (decisions, obs, ...) arg order used by play_game and profile_rollout.
+    return decisions_to_moves(obs, decisions, ids, ships, kmax=K_MAX_GLOBAL)
 
 
 def _ship_share(obs, me):
@@ -140,12 +122,15 @@ def play_game(nets, record_seats=None, greedy_seats=None):
     data = [[] for _ in range(n)]
     shaped = [[] for _ in range(n)]
     eta_caches = [{} for _ in range(n)]
+    # Per-game canonicalisation per seat (rotate start quadrant -> Q1, CCW enemy
+    # keys), computed ONCE from the initial board and reused every turn.
+    canons = [F.compute_canon(env.state[p]["observation"]) for p in range(n)]
     while not env.done:
         actions = []
         before = {}
         for p in range(n):
             obs = env.state[p]["observation"]
-            feats, valid, mine, ids, xs, ys, ships = F.extract(obs, eta_cache=eta_caches[p])
+            feats, valid, mine, ids, xs, ys, ships = F.extract(obs, eta_cache=eta_caches[p], canon=canons[p])
             if p in keep:                                  
                 decisions, rec = nets[p].act_rl(feats, valid, mine)
                 data[p].append((feats, valid, mine, rec))
@@ -212,7 +197,7 @@ def _rollout_one(payload):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--iters", type=int, default=200)
+    ap.add_argument("--iters", type=int, default=2000)
     ap.add_argument("--games", type=int, default=20)
     ap.add_argument("--eval-games", type=int, default=16, help="games per iter for pure greedy evaluation")
     ap.add_argument("--workers", type=int, default=min(8, os.cpu_count() or 1))
@@ -239,6 +224,7 @@ def main():
 
     teacher_sd = {k: v.detach().cpu() for k, v in teacher.state_dict().items()}
     best_pool = load_pool()
+    next_snap_id = max((e["id"] for e in best_pool), default=-1) + 1   # unique pool ids
     if best_pool:
         print(f"restored {len(best_pool)} pool snapshot(s) from {RL_POOL_DIR}/")
 
@@ -251,39 +237,49 @@ def main():
           f"| pool size: {POOL_SIZE}")
 
     def opp_refs():
-        # [3] 카타스트로픽 망각 방지를 위한 League 풀 다각화 구성
-        pool_list = list(best_pool)
+        # League opponents as (sd, id, is_sl). Slot 0 = most recent SOTA (anchor:
+        # always face the latest), the rest PFSP-sampled (prioritise hard ones,
+        # without replacement), padding with the frozen SL teacher (id -1).
+        entries = list(best_pool)
         refs = []
-        if pool_list:
-            refs.append(pool_list[0])  # 최근 SOTA는 반드시 1자리 차지
-        while len(refs) < N_OPP - 1 and pool_list:
-            refs.append(random.choice(pool_list))  # 나머지는 풀에서 과거 메타 랜덤 샘플링
+        if entries:
+            e0 = entries[0]
+            refs.append((e0["sd"], e0["id"], False))
+        candidates = entries[1:] if len(entries) > 1 else []
+        weights = [pfsp_weight(e) for e in candidates]
+        while len(refs) < N_OPP and candidates:
+            j = random.choices(range(len(candidates)), weights=weights, k=1)[0]
+            e = candidates.pop(j); weights.pop(j)
+            refs.append((e["sd"], e["id"], False))
         while len(refs) < N_OPP:
-            refs.append(teacher_sd)    # 남는 자리는 항상 기본 Teacher 할당
-        return refs[:N_OPP]
+            refs.append((teacher_sd, -1, True))   # SL teacher fills empty slots
+        return refs
 
     def make_tasks(learner_sd, is_eval=False):
-        refs = opp_refs()
-        refs_is_sl = [r is teacher_sd for r in refs]         
+        refs = opp_refs()                          # list of (sd, id, is_sl)
         target_games = args.eval_games if is_eval else args.games
         n4 = target_games // 4
         n2 = target_games - n4
-        tasks, tags = [], []
-        for j in range(n2):                                  
-            k = j % N_OPP
-            tasks.append((learner_sd, [refs[k]], [refs_is_sl[k]], j % 2, is_eval))
-            tags.append("sl2p" if refs_is_sl[k] else "best2p")
-        for j in range(n4):                                  
-            tasks.append((learner_sd, list(refs), list(refs_is_sl), j % 4, is_eval))
+        tasks, tags, opp_ids = [], [], []
+        for j in range(n2):
+            sd_k, id_k, is_sl_k = refs[j % N_OPP]
+            tasks.append((learner_sd, [sd_k], [is_sl_k], j % 2, is_eval))
+            tags.append("sl2p" if is_sl_k else "best2p")
+            opp_ids.append(id_k)                   # clean attribution in 2p
+        for j in range(n4):
+            sds = [r[0] for r in refs]
+            is_sls = [r[2] for r in refs]
+            tasks.append((learner_sd, sds, is_sls, j % 4, is_eval))
             tags.append("4p")
-        return tasks, tags
+            opp_ids.append(None)                   # ambiguous in 4p -> no stat update
+        return tasks, tags, opp_ids
 
     def rollouts(is_eval=False):
         learner_sd = {k: v.detach().cpu() for k, v in net.state_dict().items()}
-        tasks, tags = make_tasks(learner_sd, is_eval=is_eval)
+        tasks, tags, opp_ids = make_tasks(learner_sd, is_eval=is_eval)
         results = pool.map(_rollout_one, tasks) if pool is not None \
             else (_rollout_one(tk) for tk in tasks)
-        yield from zip(tags, results)
+        yield from zip(tags, opp_ids, results)
 
     log_f = open(RL_LOG_CSV, "w", newline="", encoding="utf-8")
     log = csv.writer(log_f)
@@ -300,10 +296,14 @@ def main():
         
         feats_buf, valid_buf, mine_buf, rec_buf, step_rewards_buf, dones_buf = [], [], [], [], [], []
         tr_w = tr_g = 0
-        
-        for tag, (seat_data, reward, shaped, won, players) in tqdm(rollouts(is_eval=False), total=args.games,
-                                                                   desc="train rollout", unit="game", leave=False):
+        id2entry = {e["id"]: e for e in best_pool}   # for PFSP stat attribution
+
+        for tag, opp_id, (seat_data, reward, shaped, won, players) in tqdm(rollouts(is_eval=False), total=args.games,
+                                                                           desc="train rollout", unit="game", leave=False):
             tr_g += 1; tr_w += won
+            if opp_id is not None and opp_id in id2entry:   # 2p game vs a pool snapshot
+                e = id2entry[opp_id]
+                e["g"] += 1; e["w"] += int(won)
             T = len(seat_data)
             for t, (feats, valid, mine, rec) in enumerate(seat_data):
                 feats_buf.append(feats)
@@ -329,30 +329,26 @@ def main():
         
         all_logp_old = []
         all_values_old = []
-        all_logp_teacher = []
-        
+
         with torch.no_grad():
             for s in range(0, len(step_rewards_buf), MINIBATCH):
                 chunk_fb = all_feats[s:s+MINIBATCH]
                 chunk_vb = all_valid[s:s+MINIBATCH]
                 chunk_mb = all_mine[s:s+MINIBATCH]
                 chunk_recs = rec_buf[s:s+MINIBATCH]
-                
+
                 lp, v, _ = net.evaluate_actions(chunk_fb, chunk_vb, chunk_mb, chunk_recs)
                 all_logp_old.append(lp)
                 all_values_old.append(v)
-                
-                lp_t, _, _ = teacher.evaluate_actions(chunk_fb, chunk_vb, chunk_mb, chunk_recs)
-                all_logp_teacher.append(lp_t)
-                
+
         all_logp_old = torch.cat(all_logp_old)
         all_values_old = torch.cat(all_values_old)
-        all_logp_teacher = torch.cat(all_logp_teacher)
 
-        # [4] KL Penalty 안정화 (음수 페널티 차단 및 분산 제어)
-        kl_penalty = torch.clamp(all_logp_old - all_logp_teacher, min=0.0)
-        all_step_rewards -= KL_COEF * kl_penalty
-        avg_kl = kl_penalty.mean().item()
+        # Teacher KL is now a differentiable loss term in the PPO update below
+        # (KL(teacher||student) per component), NOT a reward penalty. This keeps
+        # the value function estimating the true return and gives a direct BC
+        # gradient toward the human policy (cf. AlphaStar human_policy_kl_loss).
+        # avg_kl is accumulated in the update loop for logging.
 
         r_arr = all_step_rewards.cpu().numpy()
         v_arr = all_values_old.cpu().numpy()
@@ -377,7 +373,7 @@ def main():
         adv_buf = (adv_buf - adv_buf.mean()) / (adv_buf.std() + 1e-8)
 
         net.train()
-        tot_p = tot_v = tot_e = 0.0
+        tot_p = tot_v = tot_e = tot_k = 0.0
         nb = 0
 
         for epoch in range(PPO_EPOCHS):
@@ -395,26 +391,30 @@ def main():
                 old_logp = all_logp_old[chunk]
                 mb_adv = adv_buf[chunk]
 
-                logp, value, ent = net.evaluate_actions(fb, vb, mb, recs)
-                
+                logp, value, ent, kl = net.evaluate_actions(fb, vb, mb, recs, teacher=teacher)
+
                 ratio = torch.exp(logp - old_logp)
                 surr1 = ratio * mb_adv
                 surr2 = torch.clamp(ratio, 1.0 - PPO_CLIP, 1.0 + PPO_CLIP) * mb_adv
                 policy_loss = -torch.min(surr1, surr2).mean()
-                
+
                 value_loss = ((ret - value) ** 2).mean()
                 entropy = ent.mean()
-                loss = policy_loss + VALUE_COEF * value_loss - ENTROPY_COEF * entropy
+                kl_loss = kl.mean()                       # KL(teacher||student) BC anchor
+                loss = (policy_loss + VALUE_COEF * value_loss
+                        - ENTROPY_COEF * entropy + KL_COEF * kl_loss)
 
                 opt.zero_grad()
                 loss.backward()
                 torch.nn.utils.clip_grad_norm_(net.parameters(), 1.0)
                 opt.step()
-                
-                tot_p += policy_loss.item(); tot_v += value_loss.item(); tot_e += entropy.item(); nb += 1
+
+                tot_p += policy_loss.item(); tot_v += value_loss.item(); tot_e += entropy.item()
+                tot_k += kl_loss.item(); nb += 1
 
         upd_s = time.perf_counter() - t_upd
         p_loss, v_loss, e_loss = tot_p / nb, tot_v / nb, tot_e / nb
+        avg_kl = tot_k / nb
         
         # =======================================================
         # 3. 평가 모드 (2단계 심층 검증 적용) -- EVAL_EVERY iter마다만
@@ -426,8 +426,8 @@ def main():
         if do_eval:
             eval_w2 = eval_g2 = eval_w4 = eval_g4 = eval_wsl = eval_gsl = 0
 
-            for tag, (_, _, _, won, players) in tqdm(rollouts(is_eval=True), total=args.eval_games,
-                                                     desc="eval stage 1", unit="game", leave=False):
+            for tag, _opp_id, (_, _, _, won, players) in tqdm(rollouts(is_eval=True), total=args.eval_games,
+                                                              desc="eval stage 1", unit="game", leave=False):
                 if players == 2:
                     eval_g2 += 1; eval_w2 += won
                 else:
@@ -440,8 +440,8 @@ def main():
             stage2_triggered = False
             if stage1_win_rate >= args.win_gate - 0.1:
                 stage2_triggered = True
-                for tag, (_, _, _, won, players) in tqdm(rollouts(is_eval=True), total=args.eval_games,
-                                                         desc="eval stage 2 (deep)", unit="game", leave=False):
+                for tag, _opp_id, (_, _, _, won, players) in tqdm(rollouts(is_eval=True), total=args.eval_games,
+                                                                  desc="eval stage 2 (deep)", unit="game", leave=False):
                     if players == 2:
                         eval_g2 += 1; eval_w2 += won
                     else:
@@ -473,7 +473,9 @@ def main():
 
         if do_eval and win_rate > args.win_gate:
             torch.save(net.state_dict(), RL_BEST)
-            best_pool.appendleft({k: v.detach().cpu() for k, v in net.state_dict().items()})
+            snap_sd = {k: v.detach().cpu() for k, v in net.state_dict().items()}
+            best_pool.appendleft({"id": next_snap_id, "sd": snap_sd, "w": 0, "g": 0})
+            next_snap_id += 1
             save_pool(best_pool)
             line += f"  <- eval>{args.win_gate:.2f}, saved {RL_BEST} (+pool {len(best_pool)})"
 

@@ -42,12 +42,12 @@ K_MAX_GLOBAL = 50  # 50틱 근거리 탐색 상한선
 # Shared physics/geometry lives in physics.py so the agent and the replay parser
 # model board motion and collisions identically.
 from physics import (
-    CENTER, ROTATION_LIMIT, SUN_RADIUS as SUN_R, BOARD,
+    CENTER, ROTATION_LIMIT,
     fleet_speed as _fleet_speed,
-    seg_point_dist as _seg_point_dist,
-    swept_dist as _swept_dist,
     comet_predictors as _comet_predictors,
     build_world as _build_world,
+    aim as _aim,                       # shared aiming/launch geometry (was local here)
+    decisions_to_moves as _decisions_to_moves,
 )
 
 # The policy + its deps. Imported at module top (not lazily) so a missing module
@@ -57,69 +57,11 @@ import features as F
 from model import OrbitNet
 
 
-def _path_blocked(sx, sy, angle, v, world_trajectories, radii, target_idx, k_hit):
-    """True if, before reaching the target at turn k_hit, the fleet's straight
-    path crosses the sun, leaves the board, or hits another planet/comet.
-    """
-    cosA, sinA = math.cos(angle), math.sin(angle)
-    px, py = sx, sy                                   
-    
-    # 딕셔너리 대신 0번째 틱(현재 위치)을 O(1)로 가져옴
-    prev = [traj[0] for traj in world_trajectories]  
-    
-    for k in range(1, k_hit + 1):
-        fx, fy = sx + v * k * cosA, sy + v * k * sinA  
-        if _seg_point_dist(px, py, fx, fy, CENTER[0], CENTER[1]) <= SUN_R:
-            return True
-        if not (0.0 <= fx <= BOARD and 0.0 <= fy <= BOARD):
-            return True
-            
-        for i, traj in enumerate(world_trajectories):
-            if i == target_idx:
-                continue
-                
-            q = traj[k]  # 매 틱마다 predict()를 호출하지 않고 캐시 배열 히트
-            if q is None:
-                continue
-                
-            p = prev[i]
-            prev[i] = q
-            
-            if p is None:
-                continue
-                
-            if _swept_dist(px, py, fx, fy, p[0], p[1], q[0], q[1]) <= radii[i]:
-                return True
-        px, py = fx, fy
-    return False
-
-
-def _aim(src, world_trajectories, radii, target_idx, v, kmax=K_MAX_GLOBAL):
-    """Launch angle to hit `target`, or None if uncatchable / path blocked.
-    """
-    sx, sy, src_r = float(src[2]), float(src[3]), float(src[4])
-    target_r = radii[target_idx]
-    
-    target_traj = world_trajectories[target_idx]
-
-    for k in range(1, kmax + 1):
-        pos = target_traj[k]
-        if pos is None:
-            break  
-        px, py = pos
-        reach = math.hypot(px - sx, py - sy) - src_r   
-        if abs(v * k - reach) <= target_r:
-            angle = math.atan2(py - sy, px - sx)
-            ox = sx + (src_r + 0.01) * math.cos(angle)
-            oy = sy + (src_r + 0.01) * math.sin(angle)
-            if not _path_blocked(ox, oy, angle, v, world_trajectories, radii, target_idx, k):
-                return angle
-    return None
-
 # --------------------------------------------------------------------------- #
 # Neural policy (lazy-loaded singleton).
 # --------------------------------------------------------------------------- #
 _net = None
+_canon = None   # per-game canonicalisation (rotate my start -> Q1, CCW enemy keys)
 
 
 def _load_net():
@@ -139,48 +81,15 @@ def _load_net():
 
 
 def _neural_moves(obs, net):
-    feats, valid_mask, mine_mask, ids, xs, ys, ships = F.extract(obs)
+    global _canon
+    step = obs.get("step", 0) if isinstance(obs, dict) else getattr(obs, "step", 0)
+    if _canon is None or step == 0:          # compute once per episode (reset at step 0)
+        _canon = F.compute_canon(obs)
+    feats, valid_mask, mine_mask, ids, xs, ys, ships = F.extract(obs, canon=_canon)
     decisions = net.act(feats, valid_mask, mine_mask, greedy=True,
                         gate_threshold=GATE_THRESHOLD)
-
-    raw = obs.get("planets", []) if isinstance(obs, dict) else getattr(obs, "planets", [])
-    planet_by_id = {int(p[0]): p for p in raw}
-    world = _build_world(obs)
-
-    # --- [핵심] 스텝당 단 한 번, 모든 행성의 50틱 미래를 전처리 ---
-    world_trajectories = []
-    radii = []
-    for w in world:
-        traj = [w["predict"](k) for k in range(K_MAX_GLOBAL + 1)]
-        world_trajectories.append(traj)
-        radii.append(w["radius"])
-        
-    id_to_idx = {w["id"]: i for i, w in enumerate(world)}
-    # ---------------------------------------------------------------
-
-    moves = []
-    for src, tgt, frac in decisions:
-        available = float(ships[src])
-        # the net predicts a fraction of the source garrison to send.
-        n = int(round(frac * available))
-        if n < 1:
-            continue
-        n = min(n, int(available))
-        tplanet = planet_by_id.get(int(ids[tgt]))
-        src_row = planet_by_id.get(int(ids[src]))
-        if tplanet is None or src_row is None:
-            continue
-            
-        target_id = int(ids[tgt])
-        if target_id not in id_to_idx:
-            continue
-        target_idx = id_to_idx[target_id]
-        
-        angle = _aim(src_row, world_trajectories, radii, target_idx, _fleet_speed(n), kmax=K_MAX_GLOBAL)
-        if angle is None:
-            continue  # no clean shot (blocked, sun, or uncatchable)
-        moves.append([int(ids[src]), angle, n])
-    return moves
+    # Aiming + launch conversion is shared geometry (physics.decisions_to_moves).
+    return _decisions_to_moves(obs, decisions, ids, ships, kmax=K_MAX_GLOBAL)
 
 
 # --------------------------------------------------------------------------- #

@@ -251,15 +251,26 @@ class OrbitNet(nn.Module):
                 record.append((i, 0, -1, 0.0))
         return decisions, record
 
-    def evaluate_actions(self, feats, valid_mask, mine_mask, records):
+    def evaluate_actions(self, feats, valid_mask, mine_mask, records, teacher=None):
         """Re-run a batch of stored steps WITH grad and return (log_prob, value,
         entropy), each [B]. `records` is a list (len B) of per-step action records
         from act_rl (one entry per owned planet, in mine_mask order). Fully
-        vectorised -- the per-(step, planet) python loop was the RL bottleneck."""
+        vectorised -- the per-(step, planet) python loop was the RL bottleneck.
+
+        If `teacher` (a frozen OrbitNet, e.g. the SL policy) is given, also return
+        a 4th value `kl` [B]: the per-step forward KL(teacher || student) summed
+        over gate (all owned) + target & ship (launched). Differentiates through
+        self only; the teacher forward runs under no_grad. Used as a behavior-
+        cloning anchor term in the PPO loss (cf. AlphaStar human_policy_kl_loss)."""
         target_logits, gate_logits, h = self.forward(feats, valid_mask, mine_mask)
         value = self.value(h, valid_mask)                       # [B]
         B = feats.shape[0]
         dev = feats.device
+
+        if teacher is not None:
+            with torch.no_grad():
+                t_target_logits, t_gate_logits, t_h = teacher.forward(
+                    feats, valid_mask, mine_mask)
 
         # Flatten records (already aligned with nonzero(mine_mask), batch-major).
         launched, target, frac = [], [], []
@@ -275,6 +286,7 @@ class OrbitNet(nn.Module):
 
         logp = torch.zeros(B, device=dev)
         ent = torch.zeros(B, device=dev)
+        kl = torch.zeros(B, device=dev) if teacher is not None else None
 
         # Gate (Bernoulli) over every owned planet.
         glog = gate_logits[bidx, pidx]                                      # [M]
@@ -283,6 +295,13 @@ class OrbitNet(nn.Module):
         ent_gate = -(p * torch.log(p + 1e-9) + (1 - p) * torch.log(1 - p + 1e-9))
         logp.index_add_(0, bidx, logp_gate)
         ent.index_add_(0, bidx, ent_gate)
+        if teacher is not None:
+            # Bernoulli KL(teacher || student) over all owned planets.
+            t_glog = t_gate_logits[bidx, pidx]
+            t_p = torch.sigmoid(t_glog)
+            kl_gate = (t_p * (F.logsigmoid(t_glog) - F.logsigmoid(glog))
+                       + (1 - t_p) * (F.logsigmoid(-t_glog) - F.logsigmoid(-glog)))
+            kl.index_add_(0, bidx, kl_gate)
 
         # Target (Categorical) only where the planet launched.
         m = launched > 0.5
@@ -301,4 +320,18 @@ class OrbitNet(nn.Module):
             fr = frac[m].clamp(1e-4, 1 - 1e-4)                             # keep in (0,1)
             logp.index_add_(0, tb, bd.log_prob(fr))
             ent.index_add_(0, tb, bd.entropy())
+
+            if teacher is not None:
+                # Categorical KL(teacher || student) over launched targets.
+                t_logsm = torch.log_softmax(t_target_logits[tb, tp], dim=-1)
+                kl_tgt = (t_logsm.exp() * (t_logsm - logsm)).sum(-1)       # [L]
+                kl.index_add_(0, tb, kl_tgt)
+                # Beta KL(teacher || student) for the ship fraction.
+                t_a, t_b = teacher.ship_beta(t_h, tb, tp, target[m])
+                kl_ship = torch.distributions.kl.kl_divergence(
+                    torch.distributions.Beta(t_a, t_b), bd)               # [L]
+                kl.index_add_(0, tb, kl_ship)
+
+        if teacher is not None:
+            return logp, value, ent, kl
         return logp, value, ent

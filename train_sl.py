@@ -23,8 +23,9 @@ from dataset import load_cached
 EPOCHS = 30
 LR = 1e-3
 WEIGHT_DECAY = 1e-5       # L2 regularization (cf. supervised.py)
-SHIP_LOSS_WEIGHT = 1.0    # ship loss is now Beta NLL (a log-density, can be <0), so it
-                          # sits on the same scale as the target cross-entropy
+SHIP_LOSS_WEIGHT = 1.0    # ship loss is MSE on the Beta mean (a fraction in [0,1]),
+                          # bounded >=0 unlike a Beta NLL. Raise it if the ship term
+                          # is too small relative to gate/target.
 # Launches are only ~16% of owned-planet decisions, so up-weight the positive
 # class in the gate BCE (~ n_neg / n_pos = 84.3 / 15.7). This both pushes launch
 # probabilities up (so a ~0.5 threshold works) and gives the rare launch class
@@ -36,7 +37,7 @@ LOG_CSV = "train_log.csv"   # per-epoch metrics, plotted by plot_log.py
 
 
 def compute_losses(net, batch, device):
-    """Forward one batch and return (loss, gate_bce, target_ce, ship_nll). Shared
+    """Forward one batch and return (loss, gate_bce, target_ce, ship_mse). Shared
     by the train and validation loops so they score identically."""
     feats = batch["feats"].to(device)
     valid = batch["valid"].to(device)
@@ -57,17 +58,17 @@ def compute_losses(net, batch, device):
     else:
         gate_loss = torch.zeros((), device=device)
 
-    # Target CE + ship-fraction Beta NLL over resolved launches (has_ship), using the
+    # Target CE + ship-fraction MSE over resolved launches (has_ship), using the
     # (source, human-chosen target) pair.
     if has_ship.any():
         b_idx, src_idx = torch.nonzero(has_ship, as_tuple=True)
         tgt_idx = target[b_idx, src_idx]
         tgt_loss = Fn.cross_entropy(target_logits[b_idx, src_idx], tgt_idx)
-        # Ship fraction: NLL of the (now unified) Beta head on the human fraction,
-        # so SL pre-trains the very distribution RL later samples from.
-        a, b = net.ship_beta(h, b_idx, src_idx, tgt_idx)
-        fr = ships[b_idx, src_idx].clamp(1e-4, 1 - 1e-4)        # keep in (0,1)
-        ship_loss = -torch.distributions.Beta(a, b).log_prob(fr).mean()
+        # Ship fraction: MSE on the Beta head's MEAN (the quantity used at greedy
+        # deployment). Bounded, so it can't dominate the shared trunk; the Beta's
+        # spread is left for RL to learn. Same unified head as RL (ship_beta).
+        frac = net.ship_fraction(h, b_idx, src_idx, tgt_idx)   # Beta mean, [0,1]
+        ship_loss = Fn.mse_loss(frac, ships[b_idx, src_idx])
     else:
         tgt_loss = torch.zeros((), device=device)
         ship_loss = torch.zeros((), device=device)
@@ -78,7 +79,7 @@ def compute_losses(net, batch, device):
 
 @torch.no_grad()
 def evaluate(net, loader, device):
-    """Mean (loss, gate_bce, target_ce, ship_nll) over a loader, in eval mode."""
+    """Mean (loss, gate_bce, target_ce, ship_mse) over a loader, in eval mode."""
     was_training = net.training
     net.eval()
     tot, tot_gate, tot_tgt, tot_ship, n_seen = 0.0, 0.0, 0.0, 0.0, 0
@@ -156,13 +157,13 @@ def main():
         tr_loss, tr_gate, tr_ce, tr_ship = (tot/n_seen, tot_gate/n_seen,
                                             tot_tgt/n_seen, tot_ship/n_seen)
         line = (f"epoch {epoch+1:3d}  loss={tr_loss:.4f}  gate={tr_gate:.4f}  "
-                f"target_ce={tr_ce:.4f}  ship_nll={tr_ship:.4f}")
+                f"target_ce={tr_ce:.4f}  ship_mse={tr_ship:.4f}")
 
         v_loss = v_gate = v_tgt = v_ship = None
         if val_loader is not None:
             v_loss, v_gate, v_tgt, v_ship = evaluate(net, val_loader, device)
             line += (f"  ||  val_loss={v_loss:.4f}  val_gate={v_gate:.4f}  "
-                     f"val_ce={v_tgt:.4f}  val_ship_nll={v_ship:.4f}")
+                     f"val_ce={v_tgt:.4f}  val_ship_mse={v_ship:.4f}")
             if v_loss < best_val:
                 best_val = v_loss
                 torch.save(net.state_dict(), OUT_PATH)

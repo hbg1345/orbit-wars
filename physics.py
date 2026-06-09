@@ -141,3 +141,90 @@ def build_world(obs):
          "predict": predict_fn(p, av, comet_pred)}
         for p in raw
     ]
+
+
+# --------------------------------------------------------------------------- #
+# Aiming / launch-conversion -- shared by the SL agent (main.py), the RL agent
+# (main_rl.py) and self-play rollouts (train_rl_v2.py) so all three aim with
+# identical geometry. (Previously copy-pasted in each.)
+# --------------------------------------------------------------------------- #
+K_MAX_GLOBAL = 50              # near-range search horizon (turns) for aiming
+
+
+def path_blocked(sx, sy, angle, v, world_trajectories, radii, target_idx, k_hit):
+    """True if, before reaching the target at turn k_hit, the fleet's straight
+    path crosses the sun, leaves the board, or hits another planet/comet."""
+    cosA, sinA = math.cos(angle), math.sin(angle)
+    px, py = sx, sy
+    prev = [traj[0] for traj in world_trajectories]   # current positions, O(1)
+    for k in range(1, k_hit + 1):
+        fx, fy = sx + v * k * cosA, sy + v * k * sinA
+        if seg_point_dist(px, py, fx, fy, CENTER[0], CENTER[1]) <= SUN_RADIUS:
+            return True
+        if not (0.0 <= fx <= BOARD and 0.0 <= fy <= BOARD):
+            return True
+        for i, traj in enumerate(world_trajectories):
+            if i == target_idx:
+                continue
+            q = traj[k]
+            if q is None:
+                continue
+            p = prev[i]
+            prev[i] = q
+            if p is None:
+                continue
+            if swept_dist(px, py, fx, fy, p[0], p[1], q[0], q[1]) <= radii[i]:
+                return True
+        px, py = fx, fy
+    return False
+
+
+def aim(src, world_trajectories, radii, target_idx, v, kmax=K_MAX_GLOBAL):
+    """Launch angle to hit `target`, or None if uncatchable / path blocked."""
+    sx, sy, src_r = float(src[2]), float(src[3]), float(src[4])
+    target_r = radii[target_idx]
+    target_traj = world_trajectories[target_idx]
+    for k in range(1, kmax + 1):
+        pos = target_traj[k]
+        if pos is None:
+            break
+        px, py = pos
+        reach = math.hypot(px - sx, py - sy) - src_r
+        if abs(v * k - reach) <= target_r:
+            angle = math.atan2(py - sy, px - sx)
+            ox = sx + (src_r + 0.01) * math.cos(angle)
+            oy = sy + (src_r + 0.01) * math.sin(angle)
+            if not path_blocked(ox, oy, angle, v, world_trajectories, radii, target_idx, k):
+                return angle
+    return None
+
+
+def decisions_to_moves(obs, decisions, ids, ships, kmax=K_MAX_GLOBAL):
+    """Convert policy decisions [(src_idx, tgt_idx, frac), ...] into the env move
+    format [[from_planet_id, angle_rad, num_ships], ...]. Precomputes each body's
+    trajectory once, then aims every launch. Skips launches that round to <1 ship,
+    have a missing/invalid source/target, or no clear (unblocked) angle."""
+    if not decisions:
+        return []
+    raw = obs.get("planets", []) if isinstance(obs, dict) else getattr(obs, "planets", [])
+    by_id = {int(p[0]): p for p in raw}
+    world = build_world(obs)
+    world_trajectories = [[w["predict"](k) for k in range(kmax + 1)] for w in world]
+    radii = [w["radius"] for w in world]
+    id_to_idx = {w["id"]: i for i, w in enumerate(world)}
+    moves = []
+    for src, tgt, frac in decisions:
+        available = float(ships[src])
+        n = min(int(round(frac * available)), int(available))
+        if n < 1:
+            continue
+        spl = by_id.get(int(ids[src]))
+        target_id = int(ids[tgt])
+        if spl is None or target_id not in id_to_idx:
+            continue
+        target_idx = id_to_idx[target_id]
+        angle = aim(spl, world_trajectories, radii, target_idx, fleet_speed(n), kmax=kmax)
+        if angle is None:
+            continue
+        moves.append([int(ids[src]), angle, n])
+    return moves

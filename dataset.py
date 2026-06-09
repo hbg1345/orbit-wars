@@ -41,26 +41,26 @@ CACHE_DIR = os.environ.get("ORBIT_CACHE_DIR", "data/parsed_cache")
 # ^ disk store (per-key .dat + meta + signature). Override via ORBIT_CACHE_DIR to
 #   put it on a drive with room -- the materialized feature store is ~20+ GB.
 KEYS = ["feats", "valid", "mine", "launch", "target", "ships", "has_ship"]  # model-facing
-PARSER_VERSION = 14   # bump when replay.py/features.py/encoding change -> drops cache
+PARSER_VERSION = 16   # bump when replay.py/features.py/encoding change -> drops cache
 
-# On disk we don't store the materialized [64, FEATURE_DIM] float feats. The
-# temporal block is most of the bytes and its owner part is a one-hot over
+# On disk we don't store the materialized [MAX_PLANETS, FEATURE_DIM] float feats.
+# The temporal block is most of the bytes and its owner part is a one-hot over
 # OWNER_CH channels (mine / neutral / enemy_1..3, all-zero = gone), so collapsing
 # those into one int8 owner code is the main win. The remaining temporal channels
 # (log-scaled garrison + x,y position) stay float16 -- stored directly.
-#   static [64, STATIC_DIM]                 float16  (instantaneous block)
-#   owner  [64, HORIZON]                    int8     0=gone, else 1..OWNER_CH
-#   tempf  [64, HORIZON, TEMP_CH-OWNER_CH]  float16  per turn: [shipslog, x, y]
+#   static [MAX_PLANETS, STATIC_DIM]                 float16  (instantaneous block)
+#   owner  [MAX_PLANETS, HORIZON]                    int8     0=gone, else 1..OWNER_CH
+#   tempf  [MAX_PLANETS, HORIZON, TEMP_CH-OWNER_CH]  float16  per turn: [shipslog, x, y]
 STORE_KEYS = ["static", "owner", "tempf", "valid", "mine", "launch", "target", "ships", "has_ship"]
 _LOG1000 = F._LOG1000
 
 
 def encode_feats(feats):
-    """[n, 64, FEATURE_DIM] float feats -> compact (static, owner, tempf)."""
+    """[n, MAX_PLANETS, FEATURE_DIM] float feats -> compact (static, owner, tempf)."""
     n = feats.shape[0]
     static = feats[:, :, :F.STATIC_DIM].astype(np.float16)
-    temp = feats[:, :, F.STATIC_DIM:].reshape(n, 64, F.HORIZON, F.TEMP_CH)
-    owner_oh = temp[..., :F.OWNER_CH]                       # [n,64,H,OWNER_CH]
+    temp = feats[:, :, F.STATIC_DIM:].reshape(n, F.MAX_PLANETS, F.HORIZON, F.TEMP_CH)
+    owner_oh = temp[..., :F.OWNER_CH]                       # [n,MAX_PLANETS,H,OWNER_CH]
     present = owner_oh.sum(axis=-1) > 0.5
     owner = (np.argmax(owner_oh, axis=-1) + 1).astype(np.int8)
     owner[~present] = 0                                     # gone/absent
@@ -69,10 +69,10 @@ def encode_feats(feats):
 
 
 def decode_feats(static, owner, tempf):
-    """Rebuild one example's [64, FEATURE_DIM] float32 feats from the compact form."""
-    feats = np.zeros((64, F.FEATURE_DIM), dtype=np.float32)
+    """Rebuild one example's [MAX_PLANETS, FEATURE_DIM] float32 feats from compact form."""
+    feats = np.zeros((F.MAX_PLANETS, F.FEATURE_DIM), dtype=np.float32)
     feats[:, :F.STATIC_DIM] = static
-    temp = feats[:, F.STATIC_DIM:].reshape(64, F.HORIZON, F.TEMP_CH)
+    temp = feats[:, F.STATIC_DIM:].reshape(F.MAX_PLANETS, F.HORIZON, F.TEMP_CH)
     for c in range(F.OWNER_CH):
         temp[..., c] = (owner == c + 1)
     temp[..., F.OWNER_CH:] = tempf
@@ -209,7 +209,7 @@ def build_store(paths, out_dir, workers=1, desc="parsing", top_teams=None):
                 print(f"  skip {path}: {err}")
             if not ex:
                 continue
-            feats = np.stack([e["feats"] for e in ex])              # [n,64,FEATURE_DIM] f32
+            feats = np.stack([e["feats"] for e in ex])              # [n,MAX_PLANETS,FEATURE_DIM] f32
             static, owner, tempf = encode_feats(feats)
             blk = {"static": static, "owner": owner, "tempf": tempf,
                    "valid": np.stack([e["valid"] for e in ex]),

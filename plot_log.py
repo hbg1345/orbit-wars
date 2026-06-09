@@ -1,7 +1,7 @@
 """Plot the training curves logged by train_sl.py (train_log.csv).
 
-Draws train vs val for each metric (total loss, target cross-entropy, ship MSE
-in log space) and marks the best-val-loss epoch (the one saved to orbit_net.pt).
+Draws train vs val for each metric (total loss, gate BCE, target cross-entropy,
+ship MSE on the Beta mean) and marks the best-val-loss epoch (saved to orbit_net.pt).
 
 Usage:
   python plot_log.py                 # reads train_log.csv -> train_curves.png
@@ -39,10 +39,11 @@ def main():
 
     panels = [
         ("total loss", "train_loss", "val_loss"),
+        ("gate BCE", "train_gate", "val_gate"),
         ("target cross-entropy", "train_ce", "val_ce"),
-        ("ship MSE (log1p space)", "train_ship", "val_ship"),
+        ("ship MSE (Beta mean)", "train_ship", "val_ship"),
     ]
-    fig, axes = plt.subplots(1, 3, figsize=(16, 4.5))
+    fig, axes = plt.subplots(1, len(panels), figsize=(5.3 * len(panels), 4.5))
 
     # Best epoch by val loss (fallback: train loss) to mark on every panel.
     bx, bvals = series(rows, "val_loss")

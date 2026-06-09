@@ -153,6 +153,13 @@ def parse_episode_data(d, perspective="winner"):
     # observation (fleet visibility can differ between the two perspectives).
     eta_caches = {p: {} for p in players}
 
+    # Per-game canonicalisation (rotate my start quadrant -> Q1, CCW enemy keys),
+    # computed ONCE from the initial board and reused for every step.
+    canons = {}
+    for p in players:
+        obs0 = steps[0][p].get("observation", {})
+        canons[p] = F.compute_canon(obs0) if obs0.get("planets") else None
+
     examples = []
     for t in range(1, len(steps)):
         # Body motion is global and depends only on the step, so build the world
@@ -165,7 +172,7 @@ def parse_episode_data(d, perspective="winner"):
                 continue
             action = steps[t][p].get("action") or []        # decided on obs[t-1]
 
-            feats, valid, mine, ids, xs, ys, ships = F.extract(obs, eta_cache=eta_caches[p])
+            feats, valid, mine, ids, xs, ys, ships = F.extract(obs, eta_cache=eta_caches[p], canon=canons[p])
             N = F.MAX_PLANETS
             id2slot = {int(pid): i for i, pid in enumerate(ids) if pid >= 0}
 
