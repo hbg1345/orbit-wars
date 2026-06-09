@@ -20,7 +20,10 @@ data/parsed_cache/
 data/zips/
 
 # Model checkpoints / RL pool snapshots (orbit_net*.pt, rl_pool/snap*.pt)
-*.pt
+orbit_net_rl.pt
+orbit_net_rl_last.pt
+rl_pool/
+
 
 # Plots / generated figures -- uncomment to stop tracking them.
 # *.png
