@@ -1,7 +1,7 @@
 """A2C/PPO RL for OrbitNet, initialised from the best RL checkpoint (or the SL policy
 on a fresh start) and trained against a snapshot-pool league of its recent bests.
 
-Features GAE, Teacher KL Regularization, Mixed Opponent Execution, and 2-Stage Evaluation.
+Features GAE, Teacher KL Regularization, Mixed Opponent Execution, and single-pass Evaluation.
 """
 import argparse
 import csv
@@ -47,21 +47,13 @@ PPO_EPOCHS = 4
 GATE_POS_WEIGHT = 5.4
 GATE_SAMPLE_BIAS = -math.log(GATE_POS_WEIGHT)
 
-# Stage-1 eval is a cheap screen: only spend stage-2 games if stage-1 can't yet
-# rule out being at/above parity. Instead of a hardcoded slack, proceed when the
-# one-sided upper confidence bound of the stage-1 win rate reaches the gate, i.e.
-# win_rate + z*SE >= gate. SE uses the per-mode parity-null variance (2p:.25,
-# 4p:.1875), so the slack auto-shrinks as eval_games grows. z=1.28 ~ 90% one-sided
-# (at n=30 this reproduces the old ~0.1 slack; tighter for larger evals).
-STAGE1_CI_Z = 1.28
-
 # Per-iter debug print of reward/value/return/advantage scales (sanity-check the
 # unbounded value head + env reward scale). Set False to silence.
 DEBUG = True
 
-# Evaluation is itself a full set of rollouts (eval_games per iter, doubled when
-# stage 2 triggers). Running it every iter doubles rollout cost, so gate it.
-EVAL_EVERY = 1
+# Evaluation is itself a full set of rollouts (eval_games per iter). Running it
+# every iter roughly doubles rollout cost, so gate it.
+EVAL_EVERY = 5
 
 # [3] 카타스트로픽 망각을 막기 위한 League Pool 확장
 POOL_SIZE = 50
@@ -78,7 +70,7 @@ RL_BEST = "orbit_net_rl.pt"
 RL_LAST = "orbit_net_rl_last.pt"   
 RL_POOL_DIR = "rl_pool"            
 RL_LOG_CSV = "train_rl_log.csv"    
-
+GREEDY_RATIO = 0.2
 
 def _load_state(path, map_location="cpu"):
     """Return a raw parameter state_dict from a checkpoint. train_sl.py saves the
@@ -232,7 +224,7 @@ def _rollout_one(payload):
         greedy_seats.update(range(players))
     else:
         for p in range(players):
-            if p != seat and random.random() < 0:
+            if p != seat and random.random() < GREEDY_RATIO:
                 greedy_seats.add(p)
             
     oi = 0
@@ -253,8 +245,8 @@ def _rollout_one(payload):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--iters", type=int, default=2000)
-    ap.add_argument("--games", type=int, default=60)
-    ap.add_argument("--eval-games", type=int, default=30, help="games per iter for pure greedy evaluation")
+    ap.add_argument("--games", type=int, default=50)
+    ap.add_argument("--eval-games", type=int, default=100, help="games per iter for pure greedy evaluation")
     ap.add_argument("--workers", type=int, default=min(8, os.cpu_count() or 1))
     ap.add_argument("--win-gate", type=float, default=None,
                     help="absolute win-rate gate to save a snapshot; default None "
@@ -379,8 +371,15 @@ def main():
 
     log_f = open(RL_LOG_CSV, "w", newline="", encoding="utf-8")
     log = csv.writer(log_f)
-    log.writerow(["iter", "steps", "win", "win2", "win4", "vssl", "wsl", "gsl",
-                  "policy", "value", "entropy", "kl_div", "tr_win"])
+    log.writerow(["iter", "steps", "win", "win2", "win4",
+                  "vssl", "wsl", "gsl",          # win rate vs the fixed SL teacher
+                  "vsbest", "wbest", "gbest",    # win rate vs a PFSP-sampled best-pool opponent
+                                                 # (a past gated snapshot, weighted toward the hard ones)
+                  "policy", "value", "entropy", "kl_div", "tr_win",
+                  # objective + PPO update-health diagnostics (the policy loss is a
+                  # near-0 surrogate, NOT a progress signal -- mean_ret is the actual
+                  # RL objective; explained_var/approx_kl/clip_frac diagnose the update).
+                  "mean_ret", "explained_var", "approx_kl", "clip_frac"])
 
     pbar = tqdm(range(args.iters), desc="RL", unit="iter")
     for it in pbar:
@@ -488,6 +487,7 @@ def main():
 
         net.train()
         tot_p = tot_v = tot_e = tot_k = 0.0
+        sum_approx_kl = sum_clip_frac = 0.0
         nb = 0
 
         for epoch in range(PPO_EPOCHS):
@@ -513,6 +513,14 @@ def main():
                 surr2 = torch.clamp(ratio, 1.0 - PPO_CLIP, 1.0 + PPO_CLIP) * mb_adv
                 policy_loss = -torch.min(surr1, surr2).mean()
 
+                with torch.no_grad():
+                    # Update-health diagnostics (not part of the loss):
+                    #   approx_kl -- how far this update moved the policy from the
+                    #     data-collection policy (PPO blows up if it runs away).
+                    #   clip_frac -- fraction of samples hitting the PPO_CLIP rail.
+                    approx_kl = (old_logp - logp).mean()
+                    clip_frac = ((ratio - 1.0).abs() > PPO_CLIP).float().mean()
+
                 value_loss = ((ret - value) ** 2).mean()
                 entropy = ent.mean()
                 kl_loss = kl.mean()                       # KL(teacher||student) BC anchor
@@ -526,13 +534,22 @@ def main():
 
                 tot_p += policy_loss.item(); tot_v += value_loss.item(); tot_e += entropy.item()
                 tot_k += kl_loss.item(); nb += 1
+                sum_approx_kl += approx_kl.item(); sum_clip_frac += clip_frac.item()
 
         upd_s = time.perf_counter() - t_upd
         p_loss, v_loss, e_loss = tot_p / nb, tot_v / nb, tot_e / nb
         avg_kl = tot_k / nb
+        avg_approx_kl = sum_approx_kl / nb
+        avg_clip_frac = sum_clip_frac / nb
+        # The actual RL objective: average return over this iter's rollout data.
+        # This is what should trend UP if learning works (policy loss won't show it).
+        mean_return = float(all_ret.mean())
+        # Critic quality: 1 = value head perfectly predicts returns, 0 = no better
+        # than guessing the mean, <0 = worse than the mean.
+        explained_var = float(1.0 - (all_ret - all_values_old).var() / (all_ret.var() + 1e-8))
         
         # =======================================================
-        # 3. 평가 모드 (2단계 심층 검증 적용) -- EVAL_EVERY iter마다만
+        # 3. 평가 모드 (단일 패스, eval_games판) -- EVAL_EVERY iter마다만
         # =======================================================
         do_eval = ((it + 1) % EVAL_EVERY == 0) or (it == args.iters - 1)
         net.eval()
@@ -540,59 +557,47 @@ def main():
 
         if do_eval:
             eval_w2 = eval_g2 = eval_w4 = eval_g4 = eval_wsl = eval_gsl = 0
+            eval_wbest = eval_gbest = 0   # wins/games vs a PFSP best-pool opponent (2p)
 
+            # Single-pass evaluation: play eval_games and tally. (The old 2-stage CI
+            # screen is gone -- with a fixed eval_games budget the simple one-pass
+            # win rate is what we report and gate the snapshot on.)
             for tag, _opp_id, (_, _, _, won, players) in tqdm(rollouts(is_eval=True), total=args.eval_games,
-                                                              desc="eval stage 1", unit="game", leave=False):
+                                                              desc="eval", unit="game", leave=False):
                 if players == 2:
                     eval_g2 += 1; eval_w2 += won
                 else:
                     eval_g4 += 1; eval_w4 += won
                 if tag == "sl2p":
                     eval_gsl += 1; eval_wsl += won
-
-            stage1_win_rate = (eval_w2 + eval_w4) / max(1, (eval_g2 + eval_g4))
-
-            # Gate = explicit override, else the parity (expected) win rate for
-            # the actual game mix this eval.
-            gate1 = args.win_gate if args.win_gate is not None else parity_winrate(eval_g2, eval_g4)
-            # One-sided upper CB of the stage-1 win rate (parity-null variance over
-            # the actual 2p/4p mix). Proceed to stage 2 unless we can already rule
-            # out parity, i.e. unless win_rate + z*SE < gate.
-            n1 = eval_g2 + eval_g4
-            stage1_se = math.sqrt(eval_g2 * 0.25 + eval_g4 * 0.1875) / max(1, n1)
-            stage2_triggered = False
-            if stage1_win_rate + STAGE1_CI_Z * stage1_se >= gate1:
-                stage2_triggered = True
-                for tag, _opp_id, (_, _, _, won, players) in tqdm(rollouts(is_eval=True), total=args.eval_games,
-                                                                  desc="eval stage 2 (deep)", unit="game", leave=False):
-                    if players == 2:
-                        eval_g2 += 1; eval_w2 += won
-                    else:
-                        eval_g4 += 1; eval_w4 += won
-                    if tag == "sl2p":
-                        eval_gsl += 1; eval_wsl += won
+                elif tag == "best2p":
+                    eval_gbest += 1; eval_wbest += won
 
             win_rate = (eval_w2 + eval_w4) / max(1, (eval_g2 + eval_g4))
             win2 = eval_w2 / max(1, eval_g2)
             win4 = eval_w4 / max(1, eval_g4)
             wsl, gsl = eval_wsl, eval_gsl
+            wbest, gbest = eval_wbest, eval_gbest
         else:
-            stage2_triggered = False
             win_rate = win2 = win4 = None
             wsl = gsl = 0
+            wbest = gbest = 0
 
         eval_s = time.perf_counter() - t_eval
 
         sl_str = f"{wsl}/{gsl}" if gsl else "-"
+        best_str = f"{wbest}/{gbest}" if gbest else "-"
         if do_eval:
-            stage_str = "(Stage 1+2)" if stage2_triggered else "(Stage 1)"
-            eval_str = (f"EVAL WIN={win_rate:.2f} {stage_str} "
-                        f"(2p={win2:.2f} 4p={win4:.2f} vsSL={sl_str})")
+            eval_str = (f"EVAL WIN={win_rate:.2f} "
+                        f"(2p={win2:.2f} 4p={win4:.2f} vsSL={sl_str} vsBest={best_str})")
         else:
             eval_str = "EVAL skipped"
         line = (f"iter {it+1:4d}  steps={len(step_rewards_buf)}  tr_s={roll_s:.0f}s upd={upd_s:.0f}s ev_s={eval_s:.0f}s  "
-                f"{eval_str} [Tr_Win={tr_win_rate:.2f}]  "
-                f"policy={p_loss:.4f} val={v_loss:.4f} ent={e_loss:.3f} kl={avg_kl:.4f}")
+                f"{eval_str} [Tr_Win={tr_win_rate:.2f}]\n"
+                f"      objective(mean_return)={mean_return:+.3f}  entropy={e_loss:.3f}  "
+                f"explained_var={explained_var:.2f}  |  "
+                f"policy_loss={p_loss:+.4f} value_loss={v_loss:.4f} teacher_kl={avg_kl:.4f} "
+                f"approx_kl={avg_approx_kl:.4f} clip_frac={avg_clip_frac:.2f}")
 
         gate = (args.win_gate if args.win_gate is not None
                 else parity_winrate(eval_g2, eval_g4)) if do_eval else None
@@ -604,15 +609,20 @@ def main():
             save_pool(best_pool)
             line += f"  <- eval>{gate:.2f}, saved {RL_BEST} (+pool {len(best_pool)})"
 
-        pbar.set_postfix(eval_win=(f"{win_rate:.2f}" if do_eval else "-"), vsSL=sl_str,
-                         pool=len(best_pool), kl=f"{avg_kl:.3f}", ent=f"{e_loss:.2f}")
+        pbar.set_postfix(eval_win=(f"{win_rate:.2f}" if do_eval else "-"),
+                         vsSL=sl_str, vsBest=best_str, pool=len(best_pool),
+                         objective=f"{mean_return:+.2f}", entropy=f"{e_loss:.2f}",
+                         teacher_kl=f"{avg_kl:.3f}")
         tqdm.write(line)
         log.writerow([it + 1, len(step_rewards_buf),
                       ("" if win_rate is None else f"{win_rate:.4f}"),
                       ("" if win2 is None else f"{win2:.4f}"),
                       ("" if win4 is None else f"{win4:.4f}"),
                       (f"{wsl/gsl:.4f}" if gsl else ""), wsl, gsl,
-                      f"{p_loss:.6f}", f"{v_loss:.6f}", f"{e_loss:.6f}", f"{avg_kl:.6f}", f"{tr_win_rate:.4f}"])
+                      (f"{wbest/gbest:.4f}" if gbest else ""), wbest, gbest,
+                      f"{p_loss:.6f}", f"{v_loss:.6f}", f"{e_loss:.6f}", f"{avg_kl:.6f}", f"{tr_win_rate:.4f}",
+                      f"{mean_return:.6f}", f"{explained_var:.4f}",
+                      f"{avg_approx_kl:.6f}", f"{avg_clip_frac:.4f}"])
         log_f.flush()
         torch.save(net.state_dict(), RL_LAST)
 
