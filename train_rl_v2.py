@@ -220,7 +220,7 @@ def _rollout_one(payload):
         greedy_seats.update(range(players))
     else:
         for p in range(players):
-            if p != seat and random.random() < 0.2:
+            if p != seat and random.random() < 0:
                 greedy_seats.add(p)
             
     oi = 0
