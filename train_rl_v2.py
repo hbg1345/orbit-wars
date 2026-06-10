@@ -80,6 +80,18 @@ RL_POOL_DIR = "rl_pool"
 RL_LOG_CSV = "train_rl_log.csv"    
 
 
+def _load_state(path, map_location="cpu"):
+    """Return a raw parameter state_dict from a checkpoint. train_sl.py saves the
+    SL net as {'model_state_dict', 'optimizer_state_dict'}, so its weights must be
+    unwrapped -- passing that whole dict to load_state_dict(..., strict=False)
+    silently matches ZERO keys and leaves the net at random init (the bug that made
+    the SL teacher/init random). RL checkpoints are raw state_dicts and pass through."""
+    ckpt = torch.load(path, map_location=map_location)
+    if isinstance(ckpt, dict) and "model_state_dict" in ckpt:
+        return ckpt["model_state_dict"]
+    return ckpt
+
+
 def _pool_path(i):
     return os.path.join(RL_POOL_DIR, f"snap{i}.pt")
 
@@ -272,14 +284,14 @@ def main():
     teacher = OrbitNet().to(device)            
     
     if os.path.exists(SL_WEIGHTS):
-        teacher.load_state_dict(torch.load(SL_WEIGHTS, map_location=device), strict=False)
+        teacher.load_state_dict(_load_state(SL_WEIGHTS, device), strict=False)
     else:
         print(f"warning: no {SL_WEIGHTS}; teacher is random")
-    teacher.eval() 
-    
+    teacher.eval()
+
     init_src = RL_BEST if os.path.exists(RL_BEST) else SL_WEIGHTS
     if os.path.exists(init_src):
-        net.load_state_dict(torch.load(init_src, map_location=device), strict=False)
+        net.load_state_dict(_load_state(init_src, device), strict=False)
         print(f"learner initialised from {init_src}  |  teacher from {SL_WEIGHTS}")
         
     opt = torch.optim.Adam(net.parameters(), lr=LR)

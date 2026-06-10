@@ -88,6 +88,12 @@ def main():
         steps, rewards = d["steps"], d["rewards"]
         winner = int(np.argmax(rewards))
         fleet_idx = replay._index_fleets(steps)
+        # Canonicalisation MUST match training (replay.py) and live (main.py):
+        # rotate the winner's start quadrant -> Q1. Computed once from the initial
+        # board. Without this, the model was evaluated on a raw frame it never
+        # trained on, which is why the sweep looked good but live play didn't.
+        obs0 = steps[0][winner].get("observation", {})
+        canon = F.compute_canon(obs0) if obs0.get("planets") else None
         
         # 파일이 여러 개일 때는 진행 상황만 간단히 출력
         if is_multi_file and not show_all:
@@ -100,7 +106,7 @@ def main():
             if not obs.get("planets"):
                 continue
 
-            feats, valid, mine, ids, xs, ys, ships = F.extract(obs)
+            feats, valid, mine, ids, xs, ys, ships = F.extract(obs, canon=canon)
             id2slot = {int(pid): i for i, pid in enumerate(ids) if pid >= 0}
             human = _resolve_human(steps, fleet_idx, t, winner, ids, id2slot, mine)
 

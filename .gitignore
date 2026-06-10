@@ -14,6 +14,7 @@ env/
 Thumbs.db
 .idea/
 .vscode/
+replay.html
 
 # Data (replays / parsed datasets / memmap caches -- usually large)
 data/parsed_cache/

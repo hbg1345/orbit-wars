@@ -61,7 +61,26 @@ from model import OrbitNet
 # Neural policy (lazy-loaded singleton).
 # --------------------------------------------------------------------------- #
 _net = None
-_canon = None   # per-game canonicalisation (rotate my start -> Q1, CCW enemy keys)
+# Per-game canonicalisation (rotate my start -> Q1, CCW enemy keys), keyed by
+# player id. MUST be per-player: kaggle runs both agents in ONE process, so a
+# single shared canon gets clobbered at step 0 by whichever player computes it
+# last -- the other player then plays in the wrong rotated frame and (since its
+# features go out-of-distribution) never launches. Keying by player id keeps each
+# perspective's canon separate. See _neural_moves.
+_canon = {}     # player_id -> canon dict
+
+
+def _load_state(path):
+    """Load a checkpoint and return its raw parameter state_dict. train_sl.py saves
+    {'model_state_dict', 'optimizer_state_dict'}, so the model weights must be
+    pulled out of that wrapper -- passing the whole dict to load_state_dict(...,
+    strict=False) silently matches ZERO keys and leaves the net at random init
+    (the bug that made the agent never attack). Falls back to the raw-state_dict
+    format for older checkpoints. torch.load still raises if the file is missing."""
+    ckpt = torch.load(path, map_location="cpu")
+    if isinstance(ckpt, dict) and "model_state_dict" in ckpt:
+        return ckpt["model_state_dict"]
+    return ckpt
 
 
 def _load_net():
@@ -71,21 +90,20 @@ def _load_net():
     global _net
     if _net is None:
         net = OrbitNet()
-        # strict=False: the SL checkpoint predates the RL value head, so it lacks
-        # those keys (unused at inference). torch.load itself still raises if the
-        # file is missing, so a bad bundle fails instead of playing randomly.
-        net.load_state_dict(torch.load(WEIGHTS_PATH, map_location="cpu"), strict=False)
+        net.load_state_dict(_load_state(WEIGHTS_PATH), strict=False)
         net.eval()
         _net = net
     return _net
 
 
 def _neural_moves(obs, net):
-    global _canon
     step = obs.get("step", 0) if isinstance(obs, dict) else getattr(obs, "step", 0)
-    if _canon is None or step == 0:          # compute once per episode (reset at step 0)
-        _canon = F.compute_canon(obs)
-    feats, valid_mask, mine_mask, ids, xs, ys, ships = F.extract(obs, canon=_canon)
+    player = obs.get("player", 0) if isinstance(obs, dict) else getattr(obs, "player", 0)
+    # Compute once per episode per perspective (step==0 resets for a new game).
+    # Keyed by player so P0 and P1 (same process, same module) don't clobber.
+    if player not in _canon or step == 0:
+        _canon[player] = F.compute_canon(obs)
+    feats, valid_mask, mine_mask, ids, xs, ys, ships = F.extract(obs, canon=_canon[player])
     decisions = net.act(feats, valid_mask, mine_mask, greedy=True,
                         gate_threshold=GATE_THRESHOLD)
     # Aiming + launch conversion is shared geometry (physics.decisions_to_moves).
@@ -166,7 +184,7 @@ def make_agent(weights_path):
     sharing the module-global singleton. Weights are mandatory (no fallback)."""
     path = weights_path if os.path.isabs(weights_path) else os.path.join(_HERE, weights_path)
     net = OrbitNet()
-    net.load_state_dict(torch.load(path, map_location="cpu"), strict=False)
+    net.load_state_dict(_load_state(path), strict=False)
     net.eval()
 
     def _agent(obs):
