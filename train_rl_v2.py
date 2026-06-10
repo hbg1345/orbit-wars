@@ -6,8 +6,10 @@ Features GAE, Teacher KL Regularization, Mixed Opponent Execution, and 2-Stage E
 import argparse
 import csv
 import logging
+import math
 import os
 import random
+import shutil
 import time
 from collections import deque
 from concurrent.futures import ProcessPoolExecutor
@@ -25,22 +27,41 @@ from main import GATE_THRESHOLD, K_MAX_GLOBAL
 from physics import decisions_to_moves
 
 # PPO & RL Hyperparameters
-GAMMA = 0.997
+GAMMA = 0.999
 GAE_LAMBDA = 0.95                  
-LR = 1e-5                          
+LR = 1e-4                          
 VALUE_COEF = 0.5
 
 # [1] 엔트로피 붕괴(Collapse)를 막기 위해 0.01 보너스 추가
 ENTROPY_COEF = 0.02
-KL_COEF = 0.05                     
+KL_COEF = 0.00               
 MINIBATCH = 1024
 
 PPO_CLIP = 0.1
 PPO_EPOCHS = 4
 
+# SL trains the gate with pos_weight (class imbalance), which INFLATES its raw
+# launch probability. Greedy (threshold) tolerates that, but Bernoulli sampling
+# over-fires. De-bias the gate logit by -log(pos_weight) at sample time so RL
+# fires at the true ~16% rate. MUST match train_sl.GATE_POS_WEIGHT.
+GATE_POS_WEIGHT = 5.4
+GATE_SAMPLE_BIAS = -math.log(GATE_POS_WEIGHT)
+
+# Stage-1 eval is a cheap screen: only spend stage-2 games if stage-1 can't yet
+# rule out being at/above parity. Instead of a hardcoded slack, proceed when the
+# one-sided upper confidence bound of the stage-1 win rate reaches the gate, i.e.
+# win_rate + z*SE >= gate. SE uses the per-mode parity-null variance (2p:.25,
+# 4p:.1875), so the slack auto-shrinks as eval_games grows. z=1.28 ~ 90% one-sided
+# (at n=30 this reproduces the old ~0.1 slack; tighter for larger evals).
+STAGE1_CI_Z = 1.28
+
+# Per-iter debug print of reward/value/return/advantage scales (sanity-check the
+# unbounded value head + env reward scale). Set False to silence.
+DEBUG = True
+
 # Evaluation is itself a full set of rollouts (eval_games per iter, doubled when
 # stage 2 triggers). Running it every iter doubles rollout cost, so gate it.
-EVAL_EVERY = 2
+EVAL_EVERY = 1
 
 # [3] 카타스트로픽 망각을 막기 위한 League Pool 확장
 POOL_SIZE = 50
@@ -154,14 +175,14 @@ def play_game(nets, record_seats=None, greedy_seats=None):
             obs = env.state[p]["observation"]
             feats, valid, mine, ids, xs, ys, ships = F.extract(obs, eta_cache=eta_caches[p], canon=canons[p])
             if p in keep:                                  
-                decisions, rec = nets[p].act_rl(feats, valid, mine)
+                decisions, rec = nets[p].act_rl(feats, valid, mine, gate_bias=GATE_SAMPLE_BIAS)
                 data[p].append((feats, valid, mine, rec))
                 before[p] = _lead_margin(obs, p)
             elif p in greedy_seats:                        
                 decisions = nets[p].act(feats, valid, mine, greedy=True,
                                         gate_threshold=GATE_THRESHOLD)
             else:                                          
-                decisions, _ = nets[p].act_rl(feats, valid, mine)
+                decisions, _ = nets[p].act_rl(feats, valid, mine, gate_bias=GATE_SAMPLE_BIAS)
             actions.append(to_action(decisions, obs, ids, ships))
         env.step(actions)
         for p in keep:                                     
@@ -227,7 +248,19 @@ def main():
                     help="absolute win-rate gate to save a snapshot; default None "
                          "= use the parity (expected) win rate for the game mix")
     ap.add_argument("--shape-coef", type=float, default=1.0)
+    ap.add_argument("--rebuild", action="store_true",
+                    help="start fresh from the SL policy: delete the RL pool dir "
+                         f"({RL_POOL_DIR}/) and RL checkpoints ({RL_BEST}, {RL_LAST}) first")
     args = ap.parse_args()
+
+    if args.rebuild:
+        if os.path.isdir(RL_POOL_DIR):
+            shutil.rmtree(RL_POOL_DIR)
+            print(f"rebuild: removed pool dir {RL_POOL_DIR}/")
+        for f in (RL_BEST, RL_LAST):
+            if os.path.exists(f):
+                os.remove(f)
+                print(f"rebuild: removed checkpoint {f}")
 
     if torch.cuda.is_available():
         device = "cuda"                        # Windows/Linux + NVIDIA
@@ -389,7 +422,8 @@ def main():
                 chunk_mb = all_mine[s:s+MINIBATCH]
                 chunk_recs = rec_buf[s:s+MINIBATCH]
 
-                lp, v, _ = net.evaluate_actions(chunk_fb, chunk_vb, chunk_mb, chunk_recs)
+                lp, v, _ = net.evaluate_actions(chunk_fb, chunk_vb, chunk_mb, chunk_recs,
+                                                gate_bias=GATE_SAMPLE_BIAS)
                 all_logp_old.append(lp)
                 all_values_old.append(v)
 
@@ -422,6 +456,22 @@ def main():
             
         adv_buf = torch.tensor(adv_arr, dtype=torch.float32, device=device)
         all_ret = adv_buf + all_values_old
+
+        if DEBUG:
+            def _c(x):  # compact "mean±std[min,max]" for a tensor/array
+                x = x.detach().float() if torch.is_tensor(x) else torch.as_tensor(x, dtype=torch.float32)
+                return f"{x.mean():+.2f}±{x.std():.2f}[{x.min():+.2f},{x.max():+.2f}]"
+            done_mask = torch.tensor(dones_buf, device=device)
+            term_r = all_step_rewards[done_mask]               # env win/loss at episode end
+            launches = sum(1 for rec in rec_buf for (_i, la, _t, _f) in rec if la)  # gate fires
+            owned = sum(len(rec) for rec in rec_buf)
+            tqdm.write(
+                f"  [dbg it{it+1}] n={len(step_rewards_buf)} games={tr_g} "
+                f"launch={launches}/{owned} ({100*launches/max(1,owned):.0f}%) | "
+                f"rew {_c(all_step_rewards)} term {_c(term_r)} | "
+                f"val {_c(all_values_old)} ret {_c(all_ret)} adv {_c(adv_arr)}"
+            )
+
         adv_buf = (adv_buf - adv_buf.mean()) / (adv_buf.std() + 1e-8)
 
         net.train()
@@ -443,7 +493,8 @@ def main():
                 old_logp = all_logp_old[chunk]
                 mb_adv = adv_buf[chunk]
 
-                logp, value, ent, kl = net.evaluate_actions(fb, vb, mb, recs, teacher=teacher)
+                logp, value, ent, kl = net.evaluate_actions(fb, vb, mb, recs, teacher=teacher,
+                                                            gate_bias=GATE_SAMPLE_BIAS)
 
                 ratio = torch.exp(logp - old_logp)
                 surr1 = ratio * mb_adv
@@ -492,8 +543,13 @@ def main():
             # Gate = explicit override, else the parity (expected) win rate for
             # the actual game mix this eval.
             gate1 = args.win_gate if args.win_gate is not None else parity_winrate(eval_g2, eval_g4)
+            # One-sided upper CB of the stage-1 win rate (parity-null variance over
+            # the actual 2p/4p mix). Proceed to stage 2 unless we can already rule
+            # out parity, i.e. unless win_rate + z*SE < gate.
+            n1 = eval_g2 + eval_g4
+            stage1_se = math.sqrt(eval_g2 * 0.25 + eval_g4 * 0.1875) / max(1, n1)
             stage2_triggered = False
-            if stage1_win_rate >= gate1 - 0.1:
+            if stage1_win_rate + STAGE1_CI_Z * stage1_se >= gate1:
                 stage2_triggered = True
                 for tag, _opp_id, (_, _, _, won, players) in tqdm(rollouts(is_eval=True), total=args.eval_games,
                                                                   desc="eval stage 2 (deep)", unit="game", leave=False):

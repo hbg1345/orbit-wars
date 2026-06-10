@@ -27,7 +27,7 @@ NEG_INF = -1e9
 
 
 class OrbitNet(nn.Module):
-    def __init__(self, d_model=192, n_heads=4, n_layers=6, dropout=0.0):
+    def __init__(self, d_model=256, n_heads=8, n_layers=4, dropout=0.0):
         super().__init__()
         self.d_model = d_model
 
@@ -64,26 +64,30 @@ class OrbitNet(nn.Module):
             nn.Linear(d_model, 1),
         )
 
-        # Ship head: a single Beta(alpha, beta) distribution over the FRACTION of
-        # the source garrison to send (in [0,1]), conditioned on the (source,
-        # target) pair. ONE head serves both regimes:
-        #   - SL fits it by Beta NLL on the human fraction (train_sl);
+        # Ship head: a 2-component Gaussian MIXTURE over the FRACTION of the source
+        # garrison to send (in [0,1]), conditioned on the (source, target) pair.
+        # A single Beta (alpha,beta>=1) is unimodal, but the human launch-fraction
+        # is bimodal -- a big "send everything" mass near 1.0 plus a separate
+        # smaller-commit mode -- so we use two Gaussians to capture both bumps.
+        # ONE head serves both regimes:
+        #   - SL fits the mixture MEAN by MSE on the human fraction (train_sl);
         #   - RL samples it and trains by policy gradient (act_rl / evaluate_actions);
-        #   - greedy deployment uses the Beta mean (see ship_fraction).
-        # Humans overwhelmingly "send everything", so a bounded fraction is far
-        # easier to fit than the 1..24000 absolute count. alpha,beta>=1 via
-        # 1+softplus keeps the density proper; the final bias leans the initial
-        # mean high ("send most").
+        #   - greedy deployment uses the mixture mean (see ship_fraction).
+        # The 5 outputs are [mu1, mu2, s1, s2, mix]: component means via sigmoid in
+        # (0,1), spreads via softplus (+floor), mixing weight via sigmoid. The bias
+        # seeds one mode high (~0.9, "send most") and one mid (~0.5), 50/50.
         self.ship_head = nn.Sequential(
             nn.Linear(2 * d_model, d_model),
             nn.ReLU(),
-            nn.Linear(d_model, 2),
+            nn.Linear(d_model, 5),
         )
         with torch.no_grad():
-            self.ship_head[-1].bias.copy_(torch.tensor([2.0, -1.0]))  # mean ~0.7
+            self.ship_head[-1].bias.copy_(torch.tensor([2.2, 0.0, -2.0, -2.0, 0.0]))
 
-        # Value head (RL critic): a board summary -> expected game outcome in
-        # [-1, 1] (win-ness). Unused by SL; trained by regression to the return.
+        # Value head (RL critic): a board summary -> expected (discounted) return.
+        # Unused by SL; trained by regression to the GAE return. Output is LINEAR
+        # (unbounded) -- the return is dense-shaped (lead-margin deltas + terminal),
+        # so it routinely exceeds [-1,1]; a tanh would saturate and bias it.
         # The summary concatenates mean- and max-pooled planet embeddings (2D):
         # mean captures the average board state, max highlights the single most
         # salient planet (e.g. a dominant garrison) that a mean would wash out.
@@ -95,14 +99,15 @@ class OrbitNet(nn.Module):
 
     def value(self, h, valid_mask):
         """Critic estimate per board: pool the (valid) planet embeddings (mean +
-        max, concatenated) and map to a scalar in [-1, 1].
+        max, concatenated) and map to a scalar (unbounded -- it regresses to the
+        dense-shaped return, which is not confined to [-1,1]).
         h [B,N,D], valid_mask [B,N] -> [B]."""
         mask = valid_mask.unsqueeze(-1).float()                          # [B,N,1]
         mean_pooled = (h * mask).sum(dim=1) / mask.sum(dim=1).clamp(min=1.0)  # [B,D]
         # Mask padded planets to -inf so they never win the max.
         max_pooled = h.masked_fill(~valid_mask.unsqueeze(-1), NEG_INF).max(dim=1).values  # [B,D]
         pooled = torch.cat([mean_pooled, max_pooled], dim=-1)            # [B,2D]
-        return torch.tanh(self.value_head(pooled).squeeze(-1))           # [B]
+        return self.value_head(pooled).squeeze(-1)                       # [B], linear
 
     def forward(self, feats, valid_mask, mine_mask):
         """
@@ -137,27 +142,70 @@ class OrbitNet(nn.Module):
 
     def ship_fraction(self, h, b_idx, src_idx, tgt_idx):
         """Greedy/deterministic fraction of the source garrison to send, in [0,1],
-        for given source/target pairs: the MEAN of the Beta head, alpha/(alpha+beta).
+        for given source/target pairs: the MODE of the mixture -- the mean of the
+        higher-weight component. NOT the mixture mean w*mu1+(1-w)*mu2: the launch
+        fraction is bimodal, so the mixture mean falls in the VALLEY between the two
+        bumps (a fraction the model itself deems unlikely). Picking the dominant
+        component's mean keeps the output on a real bump while staying deterministic.
         Used by SL-greedy deployment and inference (RL samples instead, see act_rl).
 
         h        [B, N, D]
         b_idx, src_idx, tgt_idx : 1-D index tensors selecting (batch, src, tgt).
         Multiply by the source's available ships for an absolute count (see act).
         """
-        alpha, beta = self.ship_beta(h, b_idx, src_idx, tgt_idx)
-        return alpha / (alpha + beta)                            # [M] in (0,1)
+        means, _sigmas, w = self.ship_mixture_params(h, b_idx, src_idx, tgt_idx)
+        k = w.argmax(-1, keepdim=True)                         # [M,1] dominant mode
+        return means.gather(-1, k).squeeze(-1).clamp(0.0, 1.0)  # [M] in [0,1]
 
-    def ship_beta(self, h, b_idx, src_idx, tgt_idx):
-        """Beta(alpha, beta) over the [0,1] ship fraction. Same (src, tgt)
-        conditioning everywhere; alpha,beta>=1 so the density is proper.
-        Returns (alpha, beta), each [M]."""
+    SHIP_SIGMA_FLOOR = 0.03   # keeps the "send everything" component from collapsing to a spike
+
+    def ship_mixture_params(self, h, b_idx, src_idx, tgt_idx):
+        """Raw parameters of the 2-Gaussian ship-fraction mixture for each
+        (src, tgt) pair. Returns (means, sigmas, weights):
+          means   [M, 2] component means in (0,1)   (sigmoid)
+          sigmas  [M, 2] component std devs > 0      (softplus + floor)
+          weights [M, 2] mixing probabilities, rows sum to 1 (sigmoid on logit)."""
         src_emb = h[b_idx, src_idx]
         tgt_emb = h[b_idx, tgt_idx]
         pair = torch.cat([src_emb, tgt_emb], dim=-1)             # [M, 2D]
-        raw = self.ship_head(pair)                               # [M, 2]
-        alpha = 1.0 + F.softplus(raw[..., 0])
-        beta = 1.0 + F.softplus(raw[..., 1])
-        return alpha, beta
+        raw = self.ship_head(pair)                               # [M, 5]
+        means = torch.sigmoid(raw[..., 0:2])                     # [M, 2] in (0,1)
+        sigmas = F.softplus(raw[..., 2:4]) + self.SHIP_SIGMA_FLOOR
+        w1 = torch.sigmoid(raw[..., 4:5])                        # [M, 1]
+        weights = torch.cat([w1, 1.0 - w1], dim=-1)              # [M, 2]
+        return means, sigmas, weights
+
+    def ship_mixture(self, h, b_idx, src_idx, tgt_idx):
+        """The ship-fraction distribution as a torch MixtureSameFamily of 2 Normals.
+        Support is all of R; callers clamp samples to [0,1]. log_prob is exact;
+        for entropy use ship_entropy (no closed form for a Gaussian mixture)."""
+        means, sigmas, weights = self.ship_mixture_params(h, b_idx, src_idx, tgt_idx)
+        mix = torch.distributions.Categorical(probs=weights)
+        comp = torch.distributions.Normal(means, sigmas)
+        return torch.distributions.MixtureSameFamily(mix, comp), means, sigmas, weights
+
+    def ship_logprob(self, h, b_idx, src_idx, tgt_idx, x):
+        """log p(x) under the 2-Gaussian ship-fraction mixture, computed in closed
+        form (no torch.distributions objects -> no per-batch construction/validation
+        overhead, which matters on the SL hot path). x [M] -> [M]."""
+        means, sigmas, weights = self.ship_mixture_params(h, b_idx, src_idx, tgt_idx)
+        z = (x.unsqueeze(-1) - means) / sigmas                              # [M,2]
+        log_comp = -0.5 * z * z - torch.log(sigmas) - 0.5 * math.log(2 * math.pi)
+        # clamp_min before log: a saturated sigmoid makes one weight exactly 0.0,
+        # and log(0)=-inf gives an inf gradient (0*inf -> NaN) that poisons the
+        # shared encoder. clamp passes gradient only where unclamped, so this caps
+        # the weight log-prob without the NaN.
+        log_weights = torch.log(weights.clamp_min(1e-8))                    # [M,2]
+        return torch.logsumexp(log_weights + log_comp, dim=-1)             # [M]
+
+    @staticmethod
+    def ship_entropy(sigmas, weights):
+        """Differentiable surrogate for the mixture's differential entropy: the
+        weight-averaged per-component Gaussian entropy, sum_k w_k * 0.5*log(2*pi*e*sigma_k^2).
+        This is a lower bound (ignores the mixing term) but is analytic and pushes
+        component spread up, which is all the entropy bonus needs. [M]."""
+        comp_ent = 0.5 * math.log(2.0 * math.pi * math.e) + torch.log(sigmas)  # [M,2]
+        return (weights * comp_ent).sum(-1)                                    # [M]
 
     @torch.no_grad()
     def act(self, feats, valid_mask, mine_mask, greedy=True, gate_threshold=0.5):
@@ -208,11 +256,14 @@ class OrbitNet(nn.Module):
     # in evaluate_actions during the update (standard on-policy actor-critic).
     # ----------------------------------------------------------------------- #
     @torch.no_grad()
-    def act_rl(self, feats, valid_mask, mine_mask):
+    def act_rl(self, feats, valid_mask, mine_mask, gate_bias=0.0):
         """Sample one turn's action. Returns (decisions, record):
           decisions: [(src, tgt, frac)] for planets that launched (-> a move)
           record:    [(src, launched(0/1), tgt|-1, frac)] for EVERY owned planet
-                     (gate + the sampled ship fraction are part of the action)."""
+                     (gate + the sampled ship fraction are part of the action).
+        gate_bias is added to the gate logit before sampling -- pass -log(pos_weight)
+        to undo the SL class-imbalance inflation so the Bernoulli fires at the true
+        (calibrated) launch rate instead of the threshold-tuned inflated one."""
         dev = next(self.parameters()).device
         ft = torch.as_tensor(feats, dtype=torch.float32, device=dev).unsqueeze(0)
         vm = torch.as_tensor(valid_mask, dtype=torch.bool, device=dev).unsqueeze(0)
@@ -224,8 +275,8 @@ class OrbitNet(nn.Module):
         if M == 0:
             return [], []
 
-        # Gate over all owned planets at once (one Bernoulli draw).
-        gate_p = torch.sigmoid(gate_logits[0, mine_idx])                 # [M]
+        # Gate over all owned planets at once (one Bernoulli draw), de-biased.
+        gate_p = torch.sigmoid(gate_logits[0, mine_idx] + gate_bias)     # [M] calibrated
         launched = torch.bernoulli(gate_p).bool()                       # [M]
 
         tgt_all = torch.full((M,), -1, dtype=torch.long, device=dev)    # -1 = no launch
@@ -237,8 +288,8 @@ class OrbitNet(nn.Module):
             tgt_l = torch.distributions.Categorical(
                 logits=target_logits[0, src_l]).sample()               # [L]
             b0 = torch.zeros(L, dtype=torch.long, device=dev)
-            a, b = self.ship_beta(h, b0, src_l, tgt_l)                 # [L], [L]
-            frac_l = torch.distributions.Beta(a, b).sample()          # [L]
+            dist, _m, _s, _w = self.ship_mixture(h, b0, src_l, tgt_l)  # 2-Gaussian mixture
+            frac_l = dist.sample().clamp(0.0, 1.0)                     # [L] in [0,1]
             tgt_all[launched] = tgt_l
             frac_all[launched] = frac_l
 
@@ -258,11 +309,15 @@ class OrbitNet(nn.Module):
                 record.append((i, 0, -1, 0.0))
         return decisions, record
 
-    def evaluate_actions(self, feats, valid_mask, mine_mask, records, teacher=None):
+    def evaluate_actions(self, feats, valid_mask, mine_mask, records, teacher=None,
+                         gate_bias=0.0):
         """Re-run a batch of stored steps WITH grad and return (log_prob, value,
         entropy), each [B]. `records` is a list (len B) of per-step action records
         from act_rl (one entry per owned planet, in mine_mask order). Fully
         vectorised -- the per-(step, planet) python loop was the RL bottleneck.
+
+        gate_bias MUST match the value passed to act_rl so the re-evaluated gate
+        log-prob is for the same (calibrated) Bernoulli that actually sampled.
 
         If `teacher` (a frozen OrbitNet, e.g. the SL policy) is given, also return
         a 4th value `kl` [B]: the per-step forward KL(teacher || student) summed
@@ -295,16 +350,16 @@ class OrbitNet(nn.Module):
         ent = torch.zeros(B, device=dev)
         kl = torch.zeros(B, device=dev) if teacher is not None else None
 
-        # Gate (Bernoulli) over every owned planet.
-        glog = gate_logits[bidx, pidx]                                      # [M]
+        # Gate (Bernoulli) over every owned planet, de-biased to match act_rl.
+        glog = gate_logits[bidx, pidx] + gate_bias                          # [M]
         logp_gate = -F.binary_cross_entropy_with_logits(glog, launched, reduction="none")
         p = torch.sigmoid(glog)
         ent_gate = -(p * torch.log(p + 1e-9) + (1 - p) * torch.log(1 - p + 1e-9))
         logp.index_add_(0, bidx, logp_gate)
         ent.index_add_(0, bidx, ent_gate)
         if teacher is not None:
-            # Bernoulli KL(teacher || student) over all owned planets.
-            t_glog = t_gate_logits[bidx, pidx]
+            # Bernoulli KL(teacher || student) over all owned planets (both de-biased).
+            t_glog = t_gate_logits[bidx, pidx] + gate_bias
             t_p = torch.sigmoid(t_glog)
             kl_gate = (t_p * (F.logsigmoid(t_glog) - F.logsigmoid(glog))
                        + (1 - t_p) * (F.logsigmoid(-t_glog) - F.logsigmoid(-glog)))
@@ -321,22 +376,26 @@ class OrbitNet(nn.Module):
             logp.index_add_(0, tb, logp_tgt)
             ent.index_add_(0, tb, ent_tgt)
 
-            # Ship fraction (Beta) only where the planet launched.
-            a, b = self.ship_beta(h, tb, tp, target[m])                    # [L], [L]
-            bd = torch.distributions.Beta(a, b)
-            fr = frac[m].clamp(1e-4, 1 - 1e-4)                             # keep in (0,1)
-            logp.index_add_(0, tb, bd.log_prob(fr))
-            ent.index_add_(0, tb, bd.entropy())
+            # Ship fraction (2-Gaussian mixture) only where the planet launched.
+            # Closed-form log_prob/entropy -- no distribution object on this path.
+            _sm, ssig, sw = self.ship_mixture_params(h, tb, tp, target[m])
+            fr = frac[m].clamp(0.0, 1.0)
+            logp.index_add_(0, tb, self.ship_logprob(h, tb, tp, target[m], fr))
+            ent.index_add_(0, tb, self.ship_entropy(ssig, sw))            # analytic surrogate
 
             if teacher is not None:
                 # Categorical KL(teacher || student) over launched targets.
                 t_logsm = torch.log_softmax(t_target_logits[tb, tp], dim=-1)
                 kl_tgt = (t_logsm.exp() * (t_logsm - logsm)).sum(-1)       # [L]
                 kl.index_add_(0, tb, kl_tgt)
-                # Beta KL(teacher || student) for the ship fraction.
-                t_a, t_b = teacher.ship_beta(t_h, tb, tp, target[m])
-                kl_ship = torch.distributions.kl.kl_divergence(
-                    torch.distributions.Beta(t_a, t_b), bd)               # [L]
+                # KL(teacher || student) for the ship fraction. A Gaussian mixture
+                # has no closed-form KL, so estimate it by Monte Carlo on a single
+                # teacher draw: E_t[log p_t - log p_s] (differentiable through the
+                # student only; the teacher runs under no_grad above).
+                td, _tm, _ts, _tw = teacher.ship_mixture(t_h, tb, tp, target[m])
+                x = td.sample().clamp(0.0, 1.0)                            # [L] teacher draw
+                kl_ship = (td.log_prob(x)
+                           - self.ship_logprob(h, tb, tp, target[m], x))  # [L]
                 kl.index_add_(0, tb, kl_ship)
 
         if teacher is not None:

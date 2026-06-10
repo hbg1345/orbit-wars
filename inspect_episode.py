@@ -68,7 +68,11 @@ def main():
     print(f"Found {len(paths)} episodes. Loading weights from {weights}...\n")
 
     net = OrbitNet()
-    net.load_state_dict(torch.load(weights, map_location="cpu"))
+    ckpt = torch.load(weights, map_location="cpu")
+    # train_sl.py now saves {'model_state_dict', 'optimizer_state_dict'};
+    # fall back to the old raw-state_dict format for older checkpoints.
+    state = ckpt["model_state_dict"] if isinstance(ckpt, dict) and "model_state_dict" in ckpt else ckpt
+    net.load_state_dict(state)
     net.eval()
 
     all_records = []
