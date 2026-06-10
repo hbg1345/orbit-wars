@@ -33,8 +33,8 @@ LR = 1e-4
 VALUE_COEF = 0.5
 
 # [1] 엔트로피 붕괴(Collapse)를 막기 위해 0.01 보너스 추가
-ENTROPY_COEF = 0.02
-KL_COEF = 0.00               
+ENTROPY_COEF = 1e-3
+KL_COEF = 1e-3               
 MINIBATCH = 1024
 
 PPO_CLIP = 0.1

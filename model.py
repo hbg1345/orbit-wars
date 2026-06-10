@@ -158,6 +158,13 @@ class OrbitNet(nn.Module):
         return means.gather(-1, k).squeeze(-1).clamp(0.0, 1.0)  # [M] in [0,1]
 
     SHIP_SIGMA_FLOOR = 0.03   # keeps the "send everything" component from collapsing to a spike
+    # Ceiling on the ship-fraction std. The fraction lives in [0,1], so sigma>~0.5
+    # is already near-flat over the support -- past that point the only thing growing
+    # sigma buys is differential entropy (0.5*log(2*pi*e*sigma^2), UNBOUNDED above).
+    # With an entropy bonus that hands the optimizer a free runaway: inflate sigma to
+    # farm entropy, the ship-fraction policy degenerates to noise, win rate collapses.
+    # clamp(max) caps it AND zeroes the gradient above the cap, removing the incentive.
+    SHIP_SIGMA_CAP = 0.5
 
     def ship_mixture_params(self, h, b_idx, src_idx, tgt_idx):
         """Raw parameters of the 2-Gaussian ship-fraction mixture for each
@@ -170,7 +177,7 @@ class OrbitNet(nn.Module):
         pair = torch.cat([src_emb, tgt_emb], dim=-1)             # [M, 2D]
         raw = self.ship_head(pair)                               # [M, 5]
         means = torch.sigmoid(raw[..., 0:2])                     # [M, 2] in (0,1)
-        sigmas = F.softplus(raw[..., 2:4]) + self.SHIP_SIGMA_FLOOR
+        sigmas = (F.softplus(raw[..., 2:4]) + self.SHIP_SIGMA_FLOOR).clamp(max=self.SHIP_SIGMA_CAP)
         w1 = torch.sigmoid(raw[..., 4:5])                        # [M, 1]
         weights = torch.cat([w1, 1.0 - w1], dim=-1)              # [M, 2]
         return means, sigmas, weights
