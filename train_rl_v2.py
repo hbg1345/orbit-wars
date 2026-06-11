@@ -29,7 +29,7 @@ from physics import decisions_to_moves
 # PPO & RL Hyperparameters
 GAMMA = 1
 GAE_LAMBDA = 0.95
-LR = 1e-5
+LR = 1e-6
 VALUE_COEF = 0.5
 
 # Faster wins are worth more: on a win, add a speed bonus on top of the base +1,
