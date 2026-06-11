@@ -4,6 +4,7 @@ on a fresh start) and trained against a snapshot-pool league of its recent bests
 Features GAE, Teacher KL Regularization, Mixed Opponent Execution, and single-pass Evaluation.
 """
 import argparse
+import atexit
 import csv
 import logging
 import math
@@ -383,8 +384,14 @@ def main():
     workers = max(1, min(args.workers, args.games + args.eval_games))
     pool = (ProcessPoolExecutor(max_workers=workers, initializer=_worker_init)
             if workers > 1 else None)
+    if pool is not None:
+        # Ensure workers are torn down on ANY graceful exit (normal end, Ctrl-C,
+        # unhandled exception) -- not just the explicit shutdown at the end, which
+        # is skipped on interrupt and leaks orphaned worker processes. cancel_futures
+        # drops queued rollouts so cleanup only waits on the few in-flight games.
+        atexit.register(pool.shutdown, cancel_futures=True)
     if pool is None:
-        _worker_init()                         
+        _worker_init()
     print(f"rollout workers: {workers}  |  games/iter: {args.games} tr, {args.eval_games} eval  "
           f"| pool size: {POOL_SIZE}")
 
