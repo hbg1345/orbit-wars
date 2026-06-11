@@ -28,13 +28,28 @@ from physics import decisions_to_moves
 
 # PPO & RL Hyperparameters
 GAMMA = 0.999
-GAE_LAMBDA = 0.95                  
-LR = 1e-4                          
+GAE_LAMBDA = 0.95
+LR = 1e-5
 VALUE_COEF = 0.5
 
+# Faster wins are worth more: on a win, add a speed bonus on top of the base +1,
+# linear in how many turns were saved vs WIN_SPEED_TREF (=0 at/after that ref).
+# terminal = base_reward + WIN_SPEED_COEF * max(0, (TREF - turns) / TREF).
+# Only applies to wins; losses keep their env reward.
+WIN_SPEED_COEF = 0.5
+WIN_SPEED_TREF = 500
+
+# Dense lead-margin shaping is a learning aid, not the objective -- the win/loss
+# (+ rank/speed) terminal reward must stay the dominant signal. So shape_coef
+# starts at --shape-coef and decays linearly to 0 over SHAPE_DECAY_FRAC of the run
+# (1.0 = whole run). PBRS keeps the optimum unchanged at any coef; the decay just
+# guarantees the late policy is trained on the pure terminal objective. Set the
+# frac to 0 to disable decay (constant shape_coef).
+SHAPE_DECAY_FRAC = 1.0
+
 # [1] 엔트로피 붕괴(Collapse)를 막기 위해 0.01 보너스 추가
-ENTROPY_COEF = 1e-3
-KL_COEF = 1e-3               
+ENTROPY_COEF = 0
+KL_COEF = 1e-2               
 MINIBATCH = 1024
 
 PPO_CLIP = 0.1
@@ -160,6 +175,44 @@ def _lead_margin(obs, me):
     return (mine - best_other) / total
 
 
+def _ship_counts(obs, n):
+    """Per-owner total ships (planet garrisons + in-flight fleets), indexed by
+    GLOBAL player id 0..n-1 (owner ids in obs are global, same across seats).
+    Neutral (owner -1) is ignored. A player with count 0 is eliminated."""
+    counts = [0.0] * n
+    for p in obs.get("planets", []) or []:
+        if 0 <= p[1] < n:
+            counts[p[1]] += p[5]
+    for f in obs.get("fleets", []) or []:
+        if 0 <= f[1] < n:
+            counts[f[1]] += f[6]
+    return counts
+
+
+def _rank_rewards(survival, final_counts, n):
+    """Zero-sum placement reward from survival. Players are ranked by how long
+    they survived (later elimination = better), ties broken by final ship count.
+    Rank -> reward is linear:  r = 1 - 2*(rank-1)/(n-1)  (1st=+1 ... last=-1),
+    which sums to 0. Exact ties share the averaged reward (still zero-sum). For
+    n=2 this reduces to the usual +1/-1 win/loss."""
+    if n <= 1:
+        return [0.0] * n
+    order = sorted(range(n), key=lambda p: (survival[p], final_counts[p]), reverse=True)
+    rewards = [0.0] * n
+    i = 0
+    while i < n:
+        j = i
+        key = (survival[order[i]], final_counts[order[i]])
+        while j + 1 < n and (survival[order[j + 1]], final_counts[order[j + 1]]) == key:
+            j += 1
+        avg_rank = (i + j) / 2.0 + 1.0                 # mean of tied 1-based ranks
+        r = 1.0 - 2.0 * (avg_rank - 1.0) / (n - 1)
+        for k in range(i, j + 1):
+            rewards[order[k]] = r
+        i = j + 1
+    return rewards
+
+
 def play_game(nets, record_seats=None, greedy_seats=None):
     n = len(nets)
     keep = set(range(n)) if record_seats is None else set(record_seats)
@@ -172,6 +225,8 @@ def play_game(nets, record_seats=None, greedy_seats=None):
     # Per-game canonicalisation per seat (rotate start quadrant -> Q1, CCW enemy
     # keys), computed ONCE from the initial board and reused every turn.
     canons = [F.compute_canon(env.state[p]["observation"]) for p in range(n)]
+    turns = 0
+    elim_turn = [None] * n            # turn each player was eliminated (ships -> 0)
     while not env.done:
         actions = []
         before = {}
@@ -189,10 +244,29 @@ def play_game(nets, record_seats=None, greedy_seats=None):
                 decisions, _ = nets[p].act_rl(feats, valid, mine, gate_bias=GATE_SAMPLE_BIAS)
             actions.append(to_action(decisions, obs, ids, ships))
         env.step(actions)
-        for p in keep:                                     
-            shaped[p].append(_lead_margin(env.state[p]["observation"], p) - before[p])
+        turns += 1
+        terminal = env.done
+        counts = _ship_counts(env.state[0]["observation"], n)   # global, any seat's obs
+        for p in range(n):
+            if elim_turn[p] is None and counts[p] <= 0:
+                elim_turn[p] = turns
+        for p in keep:
+            # Proper potential-based reward shaping (PBRS, Ng et al. 1999):
+            #   F = gamma * Phi(s') - Phi(s),   with Phi(terminal) = 0.
+            # The gamma factor + zero terminal potential make the shaping
+            # policy-invariant: it can only speed learning, never change the
+            # optimal policy, and it never double-counts the env's win/loss
+            # reward at the final step (Phi(s') is forced to 0 there).
+            phi_next = 0.0 if terminal else _lead_margin(env.state[p]["observation"], p)
+            shaped[p].append(GAMMA * phi_next - before[p])
     rewards = [float(env.state[p]["reward"] or 0.0) for p in range(n)]
-    return data, rewards, shaped
+    # Survival-based zero-sum placement reward (4p: rank, 2p: +1/-1). Players still
+    # alive get survival = total turns; eliminated ones their elimination turn.
+    # Ties on survival break on final ship count.
+    final_counts = _ship_counts(env.state[0]["observation"], n)
+    survival = [turns if elim_turn[p] is None else elim_turn[p] for p in range(n)]
+    rank_rewards = _rank_rewards(survival, final_counts, n)
+    return data, rewards, shaped, turns, rank_rewards
 
 
 _W_LEARNER = None    
@@ -236,10 +310,17 @@ def _rollout_one(payload):
         oi += 1
         
     record_seats = set() if is_eval else {seat}
-    data, rewards, shaped = play_game(nets, record_seats=record_seats,
-                                      greedy_seats=greedy_seats)
+    data, rewards, shaped, turns, rank_rewards = play_game(nets, record_seats=record_seats,
+                                                           greedy_seats=greedy_seats)
+    # `won` (sole winner) stays the env-based eval/gating metric -- the headline
+    # objective is still the 1st-place win rate.
     won = rewards[seat] > max(rewards[i] for i in range(players) if i != seat)
-    return data[seat] if not is_eval else [], rewards[seat], shaped[seat] if not is_eval else [], won, players
+    # Training terminal reward = zero-sum survival placement (4p: rank, 2p: +-1),
+    # plus a speed bonus for an outright win. Eval ignores the reward (uses `won`).
+    r_seat = rank_rewards[seat]
+    if won and not is_eval:
+        r_seat += WIN_SPEED_COEF * max(0.0, (WIN_SPEED_TREF - turns) / WIN_SPEED_TREF)
+    return data[seat] if not is_eval else [], r_seat, shaped[seat] if not is_eval else [], won, players
 
 
 def main():
@@ -251,7 +332,7 @@ def main():
     ap.add_argument("--win-gate", type=float, default=None,
                     help="absolute win-rate gate to save a snapshot; default None "
                          "= use the parity (expected) win rate for the game mix")
-    ap.add_argument("--shape-coef", type=float, default=1.0)
+    ap.add_argument("--shape-coef", type=float, default=0.3)
     ap.add_argument("--rebuild", action="store_true",
                     help="start fresh from the SL policy: delete the RL pool dir "
                          f"({RL_POOL_DIR}/) and RL checkpoints ({RL_BEST}, {RL_LAST}) first")
@@ -389,6 +470,12 @@ def main():
         net.eval()
         t_roll = time.perf_counter()
         
+        # shape_coef decays linearly to 0 so the terminal reward dominates more over
+        # time (PBRS keeps the optimum invariant; this only shifts the learning aid).
+        shape_coef = args.shape_coef
+        if SHAPE_DECAY_FRAC > 0:
+            shape_coef *= max(0.0, 1.0 - it / max(1, SHAPE_DECAY_FRAC * args.iters))
+
         feats_buf, valid_buf, mine_buf, rec_buf, step_rewards_buf, dones_buf = [], [], [], [], [], []
         tr_w = tr_g = 0
         id2entry = {e["id"]: e for e in best_pool}   # for PFSP stat attribution
@@ -406,7 +493,7 @@ def main():
                 valid_buf.append(valid)
                 mine_buf.append(mine)
                 rec_buf.append(rec)
-                r = args.shape_coef * shaped[t] + (reward if t == T - 1 else 0.0)
+                r = shape_coef * shaped[t] + (reward if t == T - 1 else 0.0)
                 step_rewards_buf.append(r)
                 dones_buf.append(t == T - 1)  
                 
