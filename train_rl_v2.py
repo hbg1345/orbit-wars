@@ -30,7 +30,7 @@ from physics import decisions_to_moves
 # PPO & RL Hyperparameters
 GAMMA = 1
 GAE_LAMBDA = 0.95
-LR = 1e-6
+LR = 3e-6
 VALUE_COEF = 0.5
 
 # Faster wins are worth more: on a win, add a speed bonus on top of the base +1,
@@ -48,9 +48,18 @@ WIN_SPEED_TREF = 500
 # frac to 0 to disable decay (constant shape_coef).
 SHAPE_DECAY_FRAC = 1.0
 
-# [1] 엔트로피 붕괴(Collapse)를 막기 위해 0.01 보너스 추가
-ENTROPY_COEF = 0
-KL_COEF = 1e-2               
+# Small entropy bonus to keep the (stochastic) rollout policy from collapsing.
+# Only meaningful because rollouts SAMPLE; eval/deploy stay greedy. The ship-sigma
+# runaway this could trigger is capped by SHIP_SIGMA_CAP in model.py, so a small
+# coef is safe -- start low and raise only if entropy doesn't inflate / win hold.
+ENTROPY_COEF = 1e-3
+# Teacher-KL (behavior-cloning anchor) decays from START to FLOOR over the run,
+# like shape_coef: anchor hard to the SL policy early, then loosen so the late
+# policy can deviate toward better-than-SL play. Floor (not 0) keeps a light
+# tether so it can't drift off into nonsense. Set frac to 0 for a constant START.
+KL_COEF_START = 1e-2
+KL_COEF_FLOOR = 1e-3
+KL_DECAY_FRAC = 1.0
 MINIBATCH = 1024
 
 PPO_CLIP = 0.1
@@ -483,6 +492,13 @@ def main():
         if SHAPE_DECAY_FRAC > 0:
             shape_coef *= max(0.0, 1.0 - it / max(1, SHAPE_DECAY_FRAC * args.iters))
 
+        # Teacher-KL anchor: decay START -> FLOOR linearly over KL_DECAY_FRAC of the
+        # run (frac=0 -> constant START). Used in the PPO loss + logging below.
+        kl_coef = KL_COEF_START
+        if KL_DECAY_FRAC > 0:
+            frac = max(0.0, 1.0 - it / max(1, KL_DECAY_FRAC * args.iters))
+            kl_coef = KL_COEF_FLOOR + (KL_COEF_START - KL_COEF_FLOOR) * frac
+
         feats_buf, valid_buf, mine_buf, rec_buf, step_rewards_buf, dones_buf = [], [], [], [], [], []
         tr_w = tr_g = 0
         id2entry = {e["id"]: e for e in best_pool}   # for PFSP stat attribution
@@ -619,7 +635,7 @@ def main():
                 entropy = ent.mean()
                 kl_loss = kl.mean()                       # KL(teacher||student) BC anchor
                 loss = (policy_loss + VALUE_COEF * value_loss
-                        - ENTROPY_COEF * entropy + KL_COEF * kl_loss)
+                        - ENTROPY_COEF * entropy + kl_coef * kl_loss)
 
                 opt.zero_grad()
                 loss.backward()
@@ -693,7 +709,7 @@ def main():
                 f"      objective(mean_return)={mean_return:+.3f}  loss={loss_val:+.4f}  entropy={e_loss:.3f}  "
                 f"explained_var={explained_var:.2f}\n"
                 f"      loss terms: policy={p_loss:+.4f} value={VALUE_COEF*v_loss:+.4f} "
-                f"entropy={-ENTROPY_COEF*e_loss:+.4f} kl={KL_COEF*avg_kl:+.4f}  |  "
+                f"entropy={-ENTROPY_COEF*e_loss:+.4f} kl={kl_coef*avg_kl:+.4f}  |  "
                 f"raw: value_loss={v_loss:.4f} teacher_kl={avg_kl:.4f} "
                 f"approx_kl={avg_approx_kl:.4f} clip_frac={avg_clip_frac:.2f}")
 
