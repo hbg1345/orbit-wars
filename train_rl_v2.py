@@ -27,7 +27,7 @@ from main import GATE_THRESHOLD, K_MAX_GLOBAL
 from physics import decisions_to_moves
 
 # PPO & RL Hyperparameters
-GAMMA = 0.999
+GAMMA = 1
 GAE_LAMBDA = 0.95
 LR = 1e-5
 VALUE_COEF = 0.5
@@ -64,7 +64,7 @@ GATE_SAMPLE_BIAS = -math.log(GATE_POS_WEIGHT)
 
 # Per-iter debug print of reward/value/return/advantage scales (sanity-check the
 # unbounded value head + env reward scale). Set False to silence.
-DEBUG = True
+DEBUG = False
 
 # Evaluation is itself a full set of rollouts (eval_games per iter). Running it
 # every iter roughly doubles rollout cost, so gate it.
@@ -573,7 +573,7 @@ def main():
         adv_buf = (adv_buf - adv_buf.mean()) / (adv_buf.std() + 1e-8)
 
         net.train()
-        tot_p = tot_v = tot_e = tot_k = 0.0
+        tot_loss = tot_p = tot_v = tot_e = tot_k = 0.0
         sum_approx_kl = sum_clip_frac = 0.0
         nb = 0
 
@@ -619,11 +619,13 @@ def main():
                 torch.nn.utils.clip_grad_norm_(net.parameters(), 1.0)
                 opt.step()
 
+                tot_loss += loss.item()
                 tot_p += policy_loss.item(); tot_v += value_loss.item(); tot_e += entropy.item()
                 tot_k += kl_loss.item(); nb += 1
                 sum_approx_kl += approx_kl.item(); sum_clip_frac += clip_frac.item()
 
         upd_s = time.perf_counter() - t_upd
+        loss_val = tot_loss / nb
         p_loss, v_loss, e_loss = tot_p / nb, tot_v / nb, tot_e / nb
         avg_kl = tot_k / nb
         avg_approx_kl = sum_approx_kl / nb
@@ -681,9 +683,11 @@ def main():
             eval_str = "EVAL skipped"
         line = (f"iter {it+1:4d}  steps={len(step_rewards_buf)}  tr_s={roll_s:.0f}s upd={upd_s:.0f}s ev_s={eval_s:.0f}s  "
                 f"{eval_str} [Tr_Win={tr_win_rate:.2f}]\n"
-                f"      objective(mean_return)={mean_return:+.3f}  entropy={e_loss:.3f}  "
-                f"explained_var={explained_var:.2f}  |  "
-                f"policy_loss={p_loss:+.4f} value_loss={v_loss:.4f} teacher_kl={avg_kl:.4f} "
+                f"      objective(mean_return)={mean_return:+.3f}  loss={loss_val:+.4f}  entropy={e_loss:.3f}  "
+                f"explained_var={explained_var:.2f}\n"
+                f"      loss terms: policy={p_loss:+.4f} value={VALUE_COEF*v_loss:+.4f} "
+                f"entropy={-ENTROPY_COEF*e_loss:+.4f} kl={KL_COEF*avg_kl:+.4f}  |  "
+                f"raw: value_loss={v_loss:.4f} teacher_kl={avg_kl:.4f} "
                 f"approx_kl={avg_approx_kl:.4f} clip_frac={avg_clip_frac:.2f}")
 
         gate = (args.win_gate if args.win_gate is not None
@@ -698,8 +702,8 @@ def main():
 
         pbar.set_postfix(eval_win=(f"{win_rate:.2f}" if do_eval else "-"),
                          vsSL=sl_str, vsBest=best_str, pool=len(best_pool),
-                         objective=f"{mean_return:+.2f}", entropy=f"{e_loss:.2f}",
-                         teacher_kl=f"{avg_kl:.3f}")
+                         objective=f"{mean_return:+.2f}", loss=f"{loss_val:+.2f}",
+                         entropy=f"{e_loss:.2f}", teacher_kl=f"{avg_kl:.3f}")
         tqdm.write(line)
         log.writerow([it + 1, len(step_rewards_buf),
                       ("" if win_rate is None else f"{win_rate:.4f}"),
