@@ -6,12 +6,14 @@ build the cache once here, then train_sl.py just loads it.
   python dataset.py                 # parse data/*.json + data/zips/*.zip
   python dataset.py --rebuild       # force re-parse
   python dataset.py --workers 8     # parse replays across 8 processes
-  python dataset.py --limit 100     # use only the first 100 episodes (default: all)
-  python dataset.py --top 50        # only games with a top-50% leaderboard player
+  python dataset.py --limit 100     # use only the latest 100 episodes (default: all)
+  python dataset.py --top 50        # only games with a top-50 (by rank) leaderboard player
+  python dataset.py --top-pct 10    # ...or a top-10% leaderboard player
   python dataset.py a.json b.zip    # parse specific files (.json and/or .zip)
 
---top P reads the leaderboard CSV (data/orbit-wars-publicleaderboard-*.csv) and
-keeps an episode only if at least one of its players is in the top P% by rank.
+--top N (count) / --top-pct P (percent) read the leaderboard CSV
+(data/orbit-wars-publicleaderboard-*.csv) and keep an episode only if at least
+one of its players is among the top N teams / top P% by rank.
 
 .zip archives of replays are read in-memory one episode at a time (never
 extracted to disk), so a tight disk only needs room for the zips + the cache.
@@ -20,6 +22,7 @@ extracted to disk), so a tight disk only needs room for the zips + the cache.
 import csv
 import glob
 import hashlib
+import itertools
 import json
 import os
 import random
@@ -102,13 +105,17 @@ def _set_top_teams(top):
     _TOP_TEAMS = top
 
 
-def load_top_teams(csv_path, frac=0.5):
-    """Set of team names in the top `frac` of the leaderboard, ranked by Rank.
-    Episodes whose info.TeamNames intersect this set are kept; others dropped."""
+def load_top_teams(csv_path, n_top=None, frac=None):
+    """Set of the highest-ranked team names from the leaderboard CSV. Give either
+    `n_top` (an absolute count of teams) or `frac` (a fraction, e.g. 0.5 for top
+    half). Episodes whose info.TeamNames intersect this set are kept; others
+    dropped."""
     with open(csv_path, encoding="utf-8-sig", newline="") as f:
         rows = list(csv.DictReader(f))
     rows.sort(key=lambda r: int(r["Rank"]))
-    n_top = max(1, int(len(rows) * frac))
+    if n_top is None:
+        n_top = int(len(rows) * frac)
+    n_top = max(1, min(n_top, len(rows)))
     return {r["TeamName"] for r in rows[:n_top]}
 
 
@@ -184,6 +191,69 @@ def _iter_parsed(paths, workers, desc, top_teams=None):
         _set_top_teams(top_teams)
         for p in tqdm(paths, desc=desc, unit="ep"):
             yield _parse_one(p)
+
+
+def _scan_teams(item):
+    """Read only an episode's info.TeamNames -- cheap (no feature parsing) -- so the
+    leaderboard filter can be decided up front. Returns (item, teams, error)."""
+    try:
+        if isinstance(item, tuple):
+            zip_path, member = item
+            with zipfile.ZipFile(zip_path) as zf:
+                d = json.loads(zf.read(member))
+        else:
+            with open(item, "r", encoding="utf-8") as f:
+                d = json.load(f)
+        return item, (d.get("info") or {}).get("TeamNames") or [], None
+    except Exception as e:
+        return item, None, str(e)
+
+
+def filter_top_items(items, top_teams, workers, limit=None,
+                     desc="scanning leaderboard"):
+    """Keep items (episodes) with >=1 player in `top_teams`, decided up front by
+    reading each episode's TeamNames. Items are scanned newest first and, when
+    `limit` is set, scanning stops as soon as `limit` are kept -- so a small
+    --limit never reads the whole dataset. Episodes that can't be read are dropped
+    (and reported), same as at parse time. Returns (kept_items, n_scanned)."""
+    ordered = sorted(items, key=_item_key, reverse=True)   # newest first
+    workers = max(1, min(workers, len(ordered)))
+    kept, scanned = [], 0
+
+    def take(item, teams, err):
+        nonlocal scanned
+        scanned += 1
+        if err:
+            print(f"  skip {_item_key(item)}: {err}")
+        elif any(t in top_teams for t in teams):
+            kept.append(item)
+
+    enough = lambda: limit is not None and len(kept) >= limit
+    if workers > 1:
+        from concurrent.futures import ProcessPoolExecutor
+        chunk = workers * 8                                # bound early-stop overshoot
+        it = iter(ordered)
+        with ProcessPoolExecutor(max_workers=workers) as pool, \
+                tqdm(total=len(ordered), desc=f"{desc} ({workers}w)", unit="ep") as bar:
+            while not enough():
+                batch = list(itertools.islice(it, chunk))
+                if not batch:
+                    break
+                for item, teams, err in pool.map(_scan_teams, batch):
+                    take(item, teams, err)
+                    bar.update(1)
+                    bar.set_postfix(found=len(kept), refresh=False)
+                    if enough():
+                        break
+    else:
+        with tqdm(total=len(ordered), desc=desc, unit="ep") as bar:
+            for item in ordered:
+                if enough():
+                    break
+                take(*_scan_teams(item))
+                bar.update(1)
+                bar.set_postfix(found=len(kept), refresh=False)
+    return kept, scanned
 
 
 def build_store(paths, out_dir, workers=1, desc="parsing", top_teams=None):
@@ -330,18 +400,26 @@ def load_or_build(paths, rebuild=False, workers=1, limit=None,
     os.makedirs(CACHE_DIR, exist_ok=True)
 
     items = expand_items(paths)             # zips -> per-episode (zip, member) items
+    if top_teams is not None:               # drop non-top games up front (cheap scan)
+        n_all = len(items)
+        items, scanned = filter_top_items(items, top_teams, workers, limit=limit)
+        print(f"leaderboard filter: kept {len(items)} episode(s) with a top player "
+              f"(scanned {scanned}/{n_all})")
     if limit is not None:
-        items = sorted(items, key=_item_key)[:limit]   # deterministic episode subset
+        # newest first (filenames are ISO-dated, so reverse sort == newest date),
+        # matching download_latest.sh which fetches the latest days first.
+        items = sorted(items, key=_item_key, reverse=True)[:limit]
     train_paths, val_paths = split_paths(items)
-    print(f"episodes: {len(items)}"
+    print(f"episodes to parse: {len(items)}"
           + (f" (limited to {limit})" if limit is not None else "")
           + f"  ->  split: {len(train_paths)} train / {len(val_paths)} val")
+    # Filtering already happened above, so workers parse the full (kept) set.
     n_train = build_store(train_paths, train_dir, workers=workers,
-                          desc="parsing train", top_teams=top_teams)
+                          desc="parsing train")
     if n_train == 0:
         return None, None
     n_val = (build_store(val_paths, val_dir, workers=workers,
-                         desc="parsing val", top_teams=top_teams)
+                         desc="parsing val")
              if val_paths else 0)
 
     with open(sig_file, "w", encoding="utf-8") as f:
@@ -354,7 +432,8 @@ def main():
     rebuild = "--rebuild" in sys.argv
     workers = min(8, os.cpu_count() or 1)   # parse replays in parallel by default
     limit = None                            # cap on #episodes (default: use all)
-    top_pct = None                          # keep only games with a top-N% player
+    top_n = None                            # keep only games with a top-N team player
+    top_pct = None                          # ...or a top-N% team player
     paths = []
     argv = iter(sys.argv[1:])
     for a in argv:
@@ -369,8 +448,12 @@ def main():
         elif a.startswith("--limit="):
             limit = int(a.split("=", 1)[1])
         elif a == "--top":
-            top_pct = float(next(argv))
+            top_n = int(next(argv))
         elif a.startswith("--top="):
+            top_n = int(a.split("=", 1)[1])
+        elif a == "--top-pct":
+            top_pct = float(next(argv))
+        elif a.startswith("--top-pct="):
             top_pct = float(a.split("=", 1)[1])
         else:
             paths.append(a)
@@ -383,18 +466,25 @@ def main():
           + (f"  --limit {limit} episodes" if limit is not None else "")
           + f"  (parse workers: {workers})")
 
-    # Optional leaderboard filter: keep games with >=1 player in the top top_pct%.
+    # Optional leaderboard filter: keep games with >=1 player among the top teams,
+    # given either as a count (--top N) or a percentage (--top-pct P).
     top_teams, filter_tag = None, ""
-    if top_pct is not None:
+    if top_n is not None or top_pct is not None:
         lbs = sorted(glob.glob("data/orbit-wars-publicleaderboard-*.csv"))
         if not lbs:
-            print("--top given but no leaderboard CSV found "
+            print("--top/--top-pct given but no leaderboard CSV found "
                   "(data/orbit-wars-publicleaderboard-*.csv)")
             return
         lb_path = lbs[-1]                    # latest snapshot
-        top_teams = load_top_teams(lb_path, frac=top_pct / 100.0)
-        filter_tag = f"top{top_pct}:{os.path.basename(lb_path)}"
-        print(f"leaderboard filter: top {top_pct}% -> {len(top_teams)} teams "
+        if top_n is not None:
+            top_teams = load_top_teams(lb_path, n_top=top_n)
+            filter_tag = f"topN{top_n}:{os.path.basename(lb_path)}"
+            cut = f"top {top_n} teams"
+        else:
+            top_teams = load_top_teams(lb_path, frac=top_pct / 100.0)
+            filter_tag = f"top{top_pct}:{os.path.basename(lb_path)}"
+            cut = f"top {top_pct}%"
+        print(f"leaderboard filter: {cut} -> {len(top_teams)} teams "
               f"(from {os.path.basename(lb_path)})")
 
     train_ds, val_ds = load_or_build(paths, rebuild=rebuild, workers=workers,
