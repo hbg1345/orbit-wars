@@ -15,7 +15,7 @@ Thumbs.db
 .idea/
 .vscode/
 replay.html
-
+train_log.csv
 # Data (replays / parsed datasets / memmap caches -- usually large)
 data/parsed_cache/
 data/zips/
