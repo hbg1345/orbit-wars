@@ -14,8 +14,12 @@ env/
 Thumbs.db
 .idea/
 .vscode/
+
+# Logs / generated artifacts (render output, training + observation logs)
 replay.html
 train_log.csv
+obs_log.jsonl
+obs_log.txt
 # Data (replays / parsed datasets / memmap caches -- usually large)
 data/parsed_cache/
 data/zips/
