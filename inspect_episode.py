@@ -8,11 +8,13 @@ Usage:
   python inspect_episode.py data/x.json         # evaluates that specific replay
   python inspect_episode.py data/x.json --all   # show every step, not just launches
   python inspect_episode.py --weights ckpt/epoch_30.pt
+  python inspect_episode.py --limit 20          # evaluate only the first 20 episodes
 """
 
 import glob
 import json
 import sys
+import zipfile
 
 import numpy as np
 import torch
@@ -57,10 +59,36 @@ def main():
         i = args.index("--weights")
         weights = args[i + 1]
         del args[i:i + 2]
-        
-    # 인자가 없으면 data 폴더 내의 모든 json 파일을 가져옴
-    paths = args if args else sorted(glob.glob("data/*.json"))
-    
+
+    # --limit / -n N: cap how many episodes to evaluate (default: all).
+    limit = None
+    for flag in ("--limit", "-n"):
+        if flag in args:
+            i = args.index(flag)
+            limit = int(args[i + 1])
+            del args[i:i + 2]
+            break
+
+    # 인자가 없으면 data 폴더의 loose json + zip 안의 에피소드를 모두 가져옴.
+    # zip은 dataset.py처럼 멤버를 메모리에서 읽음(디스크에 풀지 않음). 각 item은
+    # .json 경로이거나 (zip_path, member) 튜플.
+    inputs = args if args else sorted(glob.glob("data/*.json") + glob.glob("data/zips/*.zip"))
+    paths = []
+    for p in inputs:
+        if p.lower().endswith(".zip"):
+            with zipfile.ZipFile(p) as zf:
+                paths += [(p, n) for n in zf.namelist() if n.lower().endswith(".json")]
+        else:
+            paths.append(p)
+    # Default order is newest first: zip filenames are ISO-dated, so a reverse
+    # sort puts the latest days first (matching dataset.py / download_latest.sh).
+    # An explicit file list keeps the order the user gave.
+    if not args:
+        paths.sort(key=lambda it: it if isinstance(it, str) else f"{it[0]}::{it[1]}",
+                   reverse=True)
+    if limit is not None:
+        paths = paths[:limit]
+
     if not paths:
         print("No JSON replay files found.")
         return
@@ -78,11 +106,18 @@ def main():
     all_records = []
     is_multi_file = len(paths) > 1
 
-    for e_idx, path in enumerate(paths):
+    for e_idx, item in enumerate(paths):
         try:
-            d = json.load(open(path, encoding="utf-8"))
+            if isinstance(item, tuple):
+                zip_path, member = item
+                with zipfile.ZipFile(zip_path) as zf:
+                    d = json.loads(zf.read(member))
+                path = f"{zip_path}::{member}"        # display label only
+            else:
+                path = item
+                d = json.load(open(path, encoding="utf-8"))
         except Exception as e:
-            print(f"Skipping {path} due to error: {e}")
+            print(f"Skipping {item} due to error: {e}")
             continue
             
         steps, rewards = d["steps"], d["rewards"]
