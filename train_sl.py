@@ -1,7 +1,8 @@
 """Supervised training for OrbitNet -- pure training only.
 
 Data parsing/caching lives in dataset.py. Build the cache there first, then this
-script just loads it and trains, saving the best-val-loss weights to orbit_net.pt.
+script just loads it and trains, saving the best-val-loss weights to orbit_net.pt
+and the latest-epoch weights to orbit_net_last.pt (every epoch).
 
   python dataset.py            # 1) parse replays -> on-disk cache (once)
   python train_sl.py           # 2) train on the cached dataset (fresh)
@@ -34,15 +35,14 @@ SHIP_LOSS_WEIGHT = 0.5    # ship loss is the NLL of the human fraction under the
 # more gradient, sharpening the gate. Set to 1.0 to disable.
 GATE_POS_WEIGHT = 5.4
 BATCH = 512
-OUT_PATH = "orbit_net.pt"
+OUT_PATH = "orbit_net.pt"        # best-val-loss checkpoint
+LAST_PATH = "orbit_net_last.pt"  # latest-epoch checkpoint (saved every epoch)
 LOG_CSV = "train_log.csv"   # per-epoch metrics, plotted by plot_log.py
 
 
 def compute_losses(net, batch, device):
-    """Forward one batch and return (loss, gate_bce, target_ce, ship_nll, ship_mse).
-    ship_mse is a diagnostic only (MSE of the mixture mean vs the human fraction --
-    comparable to the old objective); it is NOT part of `loss`. Shared by the train
-    and validation loops so they score identically."""
+    """Forward one batch and return (loss, gate_bce, target_ce, ship_ce, ship_mse).
+    ship_mse is a diagnostic only (MSE of the categorical mode vs the human fraction)."""
     feats = batch["feats"].to(device)
     valid = batch["valid"].to(device)
     mine = batch["mine"].to(device)
@@ -54,7 +54,6 @@ def compute_losses(net, batch, device):
     target_logits, gate_logits, h = net(feats, valid, mine)   # [B,N,N],[B,N],[B,N,D]
 
     # Launch gate: BCE over owned planets -- did this planet launch at all?
-    # pos_weight up-weights the rare launch class (see GATE_POS_WEIGHT).
     if mine.any():
         gate_loss = Fn.binary_cross_entropy_with_logits(
             gate_logits[mine], launch[mine].float(),
@@ -62,24 +61,27 @@ def compute_losses(net, batch, device):
     else:
         gate_loss = torch.zeros((), device=device)
 
-    # Target CE + ship-fraction NLL over resolved launches (has_ship), using the
-    # (source, human-chosen target) pair.
+    # Target CE + Ship-fraction CE over resolved launches
     if has_ship.any():
         b_idx, src_idx = torch.nonzero(has_ship, as_tuple=True)
         tgt_idx = target[b_idx, src_idx]
         tgt_loss = Fn.cross_entropy(target_logits[b_idx, src_idx], tgt_idx)
-        # Ship fraction: NLL of the human fraction under the 2-Gaussian mixture
-        # head, so SL learns the full distribution shape (both modes), not just the
-        # mean. Same unified head as RL (ship_mixture). The SIGMA_FLOOR in the head
-        # keeps the density finite at the f=1.0 ("send everything") spike.
+        
+        # --- [수정된 부분] ---
         tgt_frac = ships[b_idx, src_idx].clamp(0.0, 1.0)
-        logp = net.ship_logprob(h, b_idx, src_idx, tgt_idx, tgt_frac)
-        ship_loss = -logp.mean()
-        # Diagnostic: how well the mixture MEAN matches the human fraction (the old
-        # MSE objective). Reported/logged only -- not added to the trained loss.
+        
+        # 1.0 -> 19번 Bin, 0.0 -> 0번 Bin에 정확히 매핑되도록 (BINS - 1)을 곱하고 반올림
+        bin_target = (tgt_frac * (net.SHIP_BINS - 1)).round().long().clamp(0, net.SHIP_BINS - 1)
+        
+        # 2. 20개 클래스에 대한 Logit을 가져와서 Cross Entropy Loss 계산
+        s_logits = net.ship_logits(h, b_idx, src_idx, tgt_idx)
+        ship_loss = Fn.cross_entropy(s_logits, bin_target)
+        
+        # 3. Diagnostic (진단용): 가장 높은 확률의 Bin을 다시 실수로 변환하여 MSE 확인
         with torch.no_grad():
-            mean_frac = net.ship_fraction(h, b_idx, src_idx, tgt_idx)
-            ship_mse = Fn.mse_loss(mean_frac, tgt_frac)
+            pred_frac = net.ship_fraction(h, b_idx, src_idx, tgt_idx)
+            ship_mse = Fn.mse_loss(pred_frac, tgt_frac)
+        # -------------------------------------------------------------
     else:
         tgt_loss = torch.zeros((), device=device)
         ship_loss = torch.zeros((), device=device)
@@ -204,12 +206,15 @@ def main():
         if val_loader is not None:
             v_loss, v_gate, v_tgt, v_ship, v_mse = evaluate(net, val_loader, device)
             line += (f"  ||  val_loss={v_loss:.4f}  val_gate={v_gate:.4f}  "
-                     f"val_ce={v_tgt:.4f}  val_ship_nll={v_ship:.4f}  val_ship_mse={v_mse:.4f}")
+                     f"val_ce={v_tgt:.4f}  val_ship_ce={v_ship:.4f}  val_ship_mse={v_mse:.4f}")
             if v_loss < best_val:
                 best_val = v_loss
                 # [수정] 모델 대신 통째로 묶은 딕셔너리를 저장
                 torch.save(save_dict, OUT_PATH)
                 line += f"  <- best, saved {OUT_PATH}"
+        # Always keep the latest-epoch checkpoint (for resume / inspecting the most
+        # recent weights), independent of the best-val gate above.
+        torch.save(save_dict, LAST_PATH)
         print(line)
 
         log.writerow([epoch + 1,

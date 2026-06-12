@@ -152,7 +152,7 @@ RL 에이전트는 진입점이 `main_rl.py`이고 가중치가 `orbit_net_rl.pt
 ```bash
 mkdir -p rl_submission
 # 현재 학습 코드 + 가중치를 스테이징 폴더로 복사 (구버전과 섞이지 않게 매번 복사)
-cp model.py features.py forecast.py physics.py orbit_net_rl.pt rl_submission/
+cp model.py features.py forecast.py physics.py orbit_net_rl_last.pt rl_submission/
 cp main_rl.py rl_submission/main.py        # 진입점만 main.py로 (루트 main.py는 그대로)
 # 폴더 내부 기준(-C)으로 압축해서 main.py가 tar 루트에 오게 한다
 tar -czf submission_rl.tar.gz -C rl_submission \

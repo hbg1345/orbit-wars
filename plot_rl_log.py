@@ -1,7 +1,8 @@
 """Plot the RL training curves logged by train_rl.py (train_rl_log.csv).
 
 Three panels:
-  1. win rates  -- league win, 2p, 4p, and vsSL (the fixed-opponent yardstick)
+  1. win rates  -- vsSL 2p (the fixed-opponent performance metric) and 4p vs the
+                   3 strongest pool members
   2. losses     -- policy and value
   3. entropy    -- policy entropy (exploration)
 
@@ -41,21 +42,21 @@ def main():
 
     fig, axes = plt.subplots(1, 4, figsize=(21, 4.5))
 
-    # Panel 1: win rates. vsSL is the ABSOLUTE progress signal (fixed SL opponent,
-    # so rising = genuinely stronger). vsBest = vs a PFSP-sampled best-pool opponent
-    # (a past gated snapshot of the learner, weighted toward whichever are currently
-    # HARDEST), so it sits BELOW raw parity by design -- a relative, self-referential
-    # yardstick for how the learner fares against its tough past selves.
+    # Panel 1: win rates. vsSL (2p) is the ABSOLUTE performance signal -- a fixed SL
+    # opponent, so rising = genuinely stronger (this is what gating uses). win4 is
+    # the learner's 4p win rate vs the 3 strongest pool members (by their recorded
+    # vsSL score); a relative, self-referential yardstick vs tough past selves.
+    # train win is the in-rollout (uniform-opponent, stochastic) win rate.
     ax = axes[0]
-    for col, label in [("win", "league win"), ("win2", "2p"), ("win4", "4p"),
-                       ("vssl", "vs SL"), ("vsbest", "vs Best"), ("tr_win", "train win")]:
+    for col, label in [("vssl", "vs SL (2p)"), ("win4", "4p vs top-3"),
+                       ("tr_win", "train win")]:
         xs, ys = series(rows, col)
         if xs:
             ax.plot(xs, ys, marker=".", label=label)
-    ax.axhline(0.5, color="gray", ls=":", alpha=0.5)   # 2p / vsSL / vsBest baseline
+    ax.axhline(0.5, color="gray", ls=":", alpha=0.5)   # 2p / vsSL baseline
     ax.axhline(0.25, color="gray", ls=":", alpha=0.3)  # 4p baseline
     ax.set_ylim(0, 1)
-    ax.set_title("win rates (vs SL = absolute, vs Best = relative)")
+    ax.set_title("win rates (vsSL = performance, 4p = vs strongest 3)")
     ax.set_xlabel("iter"); ax.grid(True, alpha=0.3); ax.legend()
 
     # Panel 2: the actual RL objective -- mean return should trend UP if learning
