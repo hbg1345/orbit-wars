@@ -36,7 +36,7 @@ WEIGHTS_PATH = os.path.join(_HERE, "orbit_net.pt")
 # Launch when the gate's sigmoid prob exceeds this. The gate is calibrated to the
 # ~16% launch base rate, so it sits well below 0.5 even for real launches; ~0.25
 # matches the human launch frequency (see inspect_episode.py's threshold sweep).
-GATE_THRESHOLD = 0.5
+GATE_THRESHOLD = 0.7
 K_MAX_GLOBAL = 50  # 50틱 근거리 탐색 상한선
 
 # Shared physics/geometry lives in physics.py so the agent and the replay parser
