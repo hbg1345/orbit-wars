@@ -27,7 +27,7 @@ else:
 if _HERE not in sys.path:
     sys.path.insert(0, _HERE)
 
-GATE_THRESHOLD = 0.5
+GATE_THRESHOLD = 0.7
 K_MAX_GLOBAL = 50
 
 from physics import decisions_to_moves as _decisions_to_moves
