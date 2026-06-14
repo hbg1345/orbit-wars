@@ -38,18 +38,14 @@ for s in steps:
     for pl in (0, 1):
         obs = {**s, "player": pl}
         feats, valid, mine, ids, xs, ys, ships = F.extract(obs, canon=canon[pl])
-        ft = torch.as_tensor(feats).unsqueeze(0)
-        vm = torch.as_tensor(valid).unsqueeze(0)
-        mm = torch.as_tensor(mine).unsqueeze(0)
         with torch.no_grad():
-            _tl, gl, _h = net.forward(ft, vm, mm)
-        midx = torch.nonzero(mm[0]).flatten()
-        if midx.numel() == 0:
+            dbg = net.act_debug(feats, valid, mine, gate_threshold=GATE_THRESHOLD)
+        if not dbg:
             continue
         owned_steps[pl] += 1
-        gp = torch.sigmoid(gl[0, midx])
-        max_gp[pl] = max(max_gp[pl], float(gp.max()))
-        fires[pl] += int((gp >= GATE_THRESHOLD).sum())
+        gps = [v[0] for v in dbg.values()]
+        max_gp[pl] = max(max_gp[pl], max(gps))
+        fires[pl] += sum(1 for v in dbg.values() if v[4])
 
 for pl in (0, 1):
     print(f"player={pl}: owned_steps={owned_steps[pl]} "

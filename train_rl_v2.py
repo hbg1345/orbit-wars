@@ -372,7 +372,7 @@ def main():
     ap.add_argument("--eval-games", type=int, default=150,
                     help="games per iter for pure greedy evaluation; 2:1 2p:4p split "
                          "(default 150 -> 100 2p vsSL + 50 4p vs top3)")
-    ap.add_argument("--workers", type=int, default=min(8, os.cpu_count() or 1))
+    ap.add_argument("--workers", type=int, default=min(10, os.cpu_count() or 1))
     ap.add_argument("--win-gate", type=float, default=None,
                     help="absolute win-rate gate to save a snapshot; default None "
                          "= use the parity (expected) win rate for the game mix")

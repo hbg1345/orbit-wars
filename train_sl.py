@@ -34,7 +34,7 @@ SHIP_LOSS_WEIGHT = 0.5    # ship loss is the NLL of the human fraction under the
 # probabilities up (so a ~0.5 threshold works) and gives the rare launch class
 # more gradient, sharpening the gate. Set to 1.0 to disable.
 GATE_POS_WEIGHT = 5.4
-BATCH = 512
+BATCH = 256
 OUT_PATH = "orbit_net.pt"        # best-val-loss checkpoint
 LAST_PATH = "orbit_net_last.pt"  # latest-epoch checkpoint (saved every epoch)
 LOG_CSV = "train_log.csv"   # per-epoch metrics, plotted by plot_log.py
@@ -51,41 +51,73 @@ def compute_losses(net, batch, device):
     ships = batch["ships"].to(device)          # fraction of source garrison [0,1]
     has_ship = batch["has_ship"].to(device)
 
-    target_logits, gate_logits, h = net(feats, valid, mine)   # [B,N,N],[B,N],[B,N,D]
+    h = net(feats, valid)                         # [B,N,D] 인코더 출력
+    kh = net.k_proj(h)                            # target attention 키
+    B = feats.shape[0]
 
-    # Launch gate: BCE over owned planets -- did this planet launch at all?
-    if mine.any():
-        gate_loss = Fn.binary_cross_entropy_with_logits(
-            gate_logits[mine], launch[mine].float(),
-            pos_weight=torch.tensor(GATE_POS_WEIGHT, device=device))
-    else:
-        gate_loss = torch.zeros((), device=device)
+    if not mine.any():
+        z0 = torch.zeros((), device=device)
+        return z0, z0, z0, z0, z0
+
+    # 내 행성을 보드별 index 오름차순(= AR 디코더 처리 순서)으로 모은다.
+    bidx, pidx = torch.nonzero(mine, as_tuple=True)
+    gate_label = launch[bidx, pidx].float()       # gate BCE 라벨 (off-board 발사 포함)
+    act_launched = has_ship[bidx, pidx].bool()    # 유효한 on-board target으로 실제 발사한 행성
+    human_tgt = target[bidx, pidx].clamp(min=0)   # -1(미발사)은 0으로; noop 처리되므로 무방
+    frac = ships[bidx, pidx].clamp(0.0, 1.0)
+    bin_all = (frac * (net.SHIP_BINS - 1)).round().long().clamp(0, net.SHIP_BINS - 1)
+
+    # 보드별 시퀀스 위치 pos 계산 후 [B,K_max]로 scatter.
+    counts = mine.sum(1).long()
+    K_max = int(counts.max())
+    start = torch.zeros(B, dtype=torch.long, device=device)
+    start[1:] = counts.cumsum(0)[:-1]
+    pos = torch.arange(bidx.numel(), device=device) - start[bidx]
+
+    def scat(vals, dtype):
+        t = torch.zeros(B, K_max, dtype=dtype, device=device)
+        t[bidx, pos] = vals.to(dtype)
+        return t
+
+    # 디코더 메모리(teacher forcing)는 '사람이 실제 한 행동' 기준. on-board 발사만 행동으로,
+    # 나머지는 noop으로 인코딩한다(act_launched).
+    planet_pad = scat(pidx, torch.long)
+    launched_pad = scat(act_launched, torch.float32)
+    target_pad = scat(human_tgt, torch.long)
+    bin_pad = scat(bin_all, torch.long)
+    seq_mask = torch.zeros(B, K_max, dtype=torch.bool, device=device)
+    seq_mask[bidx, pos] = True
+
+    z, _ = net._ar_decode(h, planet_pad, launched_pad, target_pad, bin_pad, seq_mask)
+    z_flat = z[bidx, pos]                         # [M,D] 각 결정의 AR context
+
+    # Launch gate: BCE over owned planets. gate는 (z_k, target) 조건.
+    # 발사 행성은 사람 target, 미발사 행성은 모델 argmax target으로 조건을 잡는다
+    # (추론 시 gate가 보게 될 target 분포와 일치).
+    tl_all = net._target_logits_from(z_flat, kh, valid, bidx, pidx)   # [M,N]
+    argmax_tgt = tl_all.argmax(dim=-1)
+    cond_tgt = torch.where(act_launched, human_tgt, argmax_tgt)
+    gate_logit, _ = net._gate_ship_from(z_flat, h[bidx, cond_tgt])
+    gate_loss = Fn.binary_cross_entropy_with_logits(
+        gate_logit, gate_label,
+        pos_weight=torch.tensor(GATE_POS_WEIGHT, device=device))
 
     # Target CE + Ship-fraction CE over resolved launches
-    if has_ship.any():
-        b_idx, src_idx = torch.nonzero(has_ship, as_tuple=True)
-        tgt_idx = target[b_idx, src_idx]
-        tgt_loss = Fn.cross_entropy(target_logits[b_idx, src_idx], tgt_idx)
-        
-        # --- [수정된 부분] ---
-        tgt_frac = ships[b_idx, src_idx].clamp(0.0, 1.0)
-        
-        # 1.0 -> 19번 Bin, 0.0 -> 0번 Bin에 정확히 매핑되도록 (BINS - 1)을 곱하고 반올림
-        bin_target = (tgt_frac * (net.SHIP_BINS - 1)).round().long().clamp(0, net.SHIP_BINS - 1)
-        
-        # 2. 20개 클래스에 대한 Logit을 가져와서 Cross Entropy Loss 계산
-        s_logits = net.ship_logits(h, b_idx, src_idx, tgt_idx)
-        ship_loss = Fn.cross_entropy(s_logits, bin_target)
-        
-        # 3. Diagnostic (진단용): 가장 높은 확률의 Bin을 다시 실수로 변환하여 MSE 확인
+    if act_launched.any():
+        m = act_launched
+        tgt_loss = Fn.cross_entropy(tl_all[m], human_tgt[m])
+
+        # 사람 target을 조건으로 ship bin(SHIP_BINS 클래스) CE
+        _, s_logits = net._gate_ship_from(z_flat[m], h[bidx[m], human_tgt[m]])
+        ship_loss = Fn.cross_entropy(s_logits, bin_all[m])
+
+        # Diagnostic: argmax bin을 실수 비율로 변환한 MSE
         with torch.no_grad():
-            pred_frac = net.ship_fraction(h, b_idx, src_idx, tgt_idx)
-            ship_mse = Fn.mse_loss(pred_frac, tgt_frac)
-        # -------------------------------------------------------------
+            pred_frac = net.bin_to_fraction(s_logits.argmax(dim=-1)).clamp(0.0, 1.0)
+            ship_mse = Fn.mse_loss(pred_frac, frac[m])
     else:
-        tgt_loss = torch.zeros((), device=device)
-        ship_loss = torch.zeros((), device=device)
-        ship_mse = torch.zeros((), device=device)
+        z0 = torch.zeros((), device=device)
+        tgt_loss = ship_loss = ship_mse = z0
 
     loss = gate_loss + tgt_loss + SHIP_LOSS_WEIGHT * ship_loss
     return loss, gate_loss, tgt_loss, ship_loss, ship_mse
@@ -150,13 +182,18 @@ def main():
         else:
             print(f"--resume given but {args.resume} not found; starting fresh")
 
+    # persistent_workers: keep workers (and their lazily-opened memmaps) alive
+    # across epochs instead of re-spawning every epoch -- less spawn churn and
+    # memory thrash on Windows, which was crashing workers mid-run.
     loader = DataLoader(train_ds, batch_size=BATCH, shuffle=True,
-                        num_workers=0, pin_memory=(device == "cuda"))
+                        num_workers=4, pin_memory=(device == "cuda"),
+                        persistent_workers=True)
     val_loader = None
     if val_ds is not None:
         val_loader = DataLoader(val_ds, batch_size=BATCH,
-                                shuffle=False, num_workers=0,
-                                pin_memory=(device == "cuda"))
+                                shuffle=False, num_workers=4,
+                                pin_memory=(device == "cuda"),
+                                persistent_workers=True)
 
     mode = "a" if args.start_epoch > 0 else "w"
     log_f = open(LOG_CSV, mode, newline="", encoding="utf-8")

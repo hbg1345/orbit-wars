@@ -148,13 +148,9 @@ def main():
             if not human and not show_all:
                 continue
 
-            ft = torch.as_tensor(feats, dtype=torch.float32).unsqueeze(0)
-            vm = torch.as_tensor(valid, dtype=torch.bool).unsqueeze(0)
-            mm = torch.as_tensor(mine, dtype=torch.bool).unsqueeze(0)
             with torch.no_grad():
-                tgt_logits, gate_logits, h = net(ft, vm, mm)
-            gate_p = torch.sigmoid(gate_logits[0])
-            tprobs = torch.softmax(tgt_logits[0], dim=-1)
+                # AR greedy 디코딩: 행성별 (gate_p, tgt, tgt_prob, frac, launched)
+                dbg = net.act_debug(feats, valid, mine, gate_threshold=GATE_THRESHOLD)
 
             # 단일 파일이거나 --all 옵션이 있을 때만 상세 스텝 출력
             if not is_multi_file or show_all:
@@ -163,17 +159,12 @@ def main():
                       f"{'HUMAN tgt':>10} {'ships':>6} | match")
 
             for i in np.nonzero(mine)[0]:
-                g = float(gate_p[i].item())
-                tp = tprobs[i]
-                m_tgt = int(torch.argmax(tp).item())
-                frac = float(net.ship_fraction(h, torch.tensor([0]), torch.tensor([i]),
-                                               torch.tensor([m_tgt])).item())
+                g, m_tgt, m_tgt_p, frac, launched = dbg[int(i)]
                 m_ships = frac * float(ships[i])
 
-                launched = g >= GATE_THRESHOLD
                 if launched:
                     m_str = f"P{int(ids[m_tgt])}"
-                    mp_str, ms_str = f"{float(tp[m_tgt]):.2f}", f"{m_ships:.0f}"
+                    mp_str, ms_str = f"{m_tgt_p:.2f}", f"{m_ships:.0f}"
                 else:
                     m_str, mp_str, ms_str = "NOOP", "-", "-"
 
