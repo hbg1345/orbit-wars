@@ -400,26 +400,19 @@ def load_or_build(paths, rebuild=False, workers=1, limit=None,
     os.makedirs(CACHE_DIR, exist_ok=True)
 
     items = expand_items(paths)             # zips -> per-episode (zip, member) items
-    if top_teams is not None:               # drop non-top games up front (cheap scan)
-        n_all = len(items)
-        items, scanned = filter_top_items(items, top_teams, workers, limit=limit)
-        print(f"leaderboard filter: kept {len(items)} episode(s) with a top player "
-              f"(scanned {scanned}/{n_all})")
     if limit is not None:
         # newest first (filenames are ISO-dated, so reverse sort == newest date),
         # matching download_latest.sh which fetches the latest days first.
         items = sorted(items, key=_item_key, reverse=True)[:limit]
     train_paths, val_paths = split_paths(items)
-    print(f"episodes to parse: {len(items)}"
-          + (f" (limited to {limit})" if limit is not None else "")
-          + f"  ->  split: {len(train_paths)} train / {len(val_paths)} val")
-    # Filtering already happened above, so workers parse the full (kept) set.
+    # No upfront leaderboard scan: the top_teams filter (if any) is applied
+    # per-episode during parsing (_parse_one), so parsing starts immediately.
     n_train = build_store(train_paths, train_dir, workers=workers,
-                          desc="parsing train")
+                          desc="parsing train", top_teams=top_teams)
     if n_train == 0:
         return None, None
     n_val = (build_store(val_paths, val_dir, workers=workers,
-                         desc="parsing val")
+                         desc="parsing val", top_teams=top_teams)
              if val_paths else 0)
 
     with open(sig_file, "w", encoding="utf-8") as f:

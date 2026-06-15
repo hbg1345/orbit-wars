@@ -41,23 +41,24 @@ VALUE_COEF = 0.5
 WIN_SPEED_COEF = 0.5
 WIN_SPEED_TREF = 500
 
-# Dense lead-margin (PBRS) shaping is OFF by default (--shape-coef 0): training uses
-# the pure terminal reward (win/loss + rank/speed). It can be re-enabled by passing
-# --shape-coef > 0, in which case shape_coef decays linearly to 0 over
-# SHAPE_DECAY_FRAC of the run (1.0 = whole run; set 0 to keep it constant).
-SHAPE_DECAY_FRAC = 1.0
+# Dense lead-margin (PBRS) shaping weight. SHAPE_COEF=0 -> off (pure terminal
+# reward: win/loss + rank/speed). Set > 0 to add the dense lead-margin signal.
+# Held CONSTANT over the run by default; set SHAPE_DECAY_FRAC > 0 to instead decay
+# it linearly to 0 over that fraction of the run (e.g., 1.0 = whole run).
+SHAPE_COEF = 1.0
+SHAPE_DECAY_FRAC = 0
 
 # Small entropy bonus to keep the (stochastic) rollout policy from collapsing.
-# Only meaningful because rollouts SAMPLE; eval/deploy stay greedy. The ship-sigma
-# runaway this could trigger is capped by SHIP_SIGMA_CAP in model.py, so a small
-# coef is safe -- start low and raise only if entropy doesn't inflate / win hold.
+# Only meaningful because rollouts SAMPLE; eval/deploy stay greedy. With the
+# discrete 101-bin Categorical ship head there's no continuous sigma to run away,
+# so a small coef is safe -- start low, raise only if entropy doesn't inflate / win hold.
 ENTROPY_COEF = 1e-3
 # Teacher-KL (behavior-cloning anchor) decays from START to FLOOR over the run,
 # like shape_coef: anchor hard to the SL policy early, then loosen so the late
 # policy can deviate toward better-than-SL play. Floor (not 0) keeps a light
 # tether so it can't drift off into nonsense. Set frac to 0 for a constant START.
 KL_COEF_START = 1e-2
-KL_COEF_FLOOR = 1e-3
+KL_COEF_FLOOR = 0
 KL_DECAY_FRAC = 1.0
 MINIBATCH = 512
 
@@ -376,8 +377,6 @@ def main():
     ap.add_argument("--win-gate", type=float, default=None,
                     help="absolute win-rate gate to save a snapshot; default None "
                          "= use the parity (expected) win rate for the game mix")
-    ap.add_argument("--shape-coef", type=float, default=0.0,
-                    help="PBRS lead-margin shaping weight; 0 = off (default), terminal reward only")
     ap.add_argument("--rebuild", action="store_true",
                     help="start fresh from the SL policy: delete the RL pool dir "
                          f"({RL_POOL_DIR}/) and RL checkpoints ({RL_BEST}, {RL_LAST}) first")
@@ -575,9 +574,11 @@ def main():
         net.eval()
         t_roll = time.perf_counter()
         
-        # shape_coef decays linearly to 0 so the terminal reward dominates more over
-        # time (PBRS keeps the optimum invariant; this only shifts the learning aid).
-        shape_coef = args.shape_coef
+        # shape_coef is the module constant SHAPE_COEF, held constant unless
+        # SHAPE_DECAY_FRAC > 0, in which case it decays linearly to 0 over that
+        # fraction of the run (PBRS keeps the optimum invariant; decay only shifts
+        # the learning aid).
+        shape_coef = SHAPE_COEF
         if SHAPE_DECAY_FRAC > 0:
             shape_coef *= max(0.0, 1.0 - it / max(1, SHAPE_DECAY_FRAC * args.iters))
 
@@ -618,7 +619,8 @@ def main():
         # planets only) so watch_launch_dist.py can show the ship-fraction shape.
         # (it + 1) % EVAL_EVERY == 0 루프 아래 및 위쪽의 _write_launch_dist 부분
         _write_launch_dist(it + 1,
-                           [(f / (OrbitNet.SHIP_BINS - 1)) for rec in rec_buf for (_i, la, _t, f) in rec if la])
+                           [(1.0 if f >= OrbitNet.SHIP_BINS - 1 else (f + 0.5) / (OrbitNet.SHIP_BINS - 1))
+                            for rec in rec_buf for (_i, la, _t, f) in rec if la])
 
         # =======================================================
         # 2. PPO 업데이트

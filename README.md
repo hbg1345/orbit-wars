@@ -76,7 +76,7 @@ conda run -n orbit python train_rl.py --games 20 --win-gate 0.55   # 저장 임�
 
 - `--iters` 수집+업데이트 사이클 / `--games` iter당 총 게임(4의 배수 권장) / `--workers` 병렬 롤아웃
 - `--win-gate`(기본 0.5): league 승률이 이걸 넘으면 `orbit_net_rl.pt` 저장 + pool에 push
-- `--shape-coef`(기본 1.0): 매 턴 **함선 점유율 변화**를 dense 보상으로 (0이면 종료 ±1만)
+- `SHAPE_COEF`(코드 모듈 상수, 기본 0): 매 턴 **함선 점유율 변화**를 dense 보상(PBRS)으로 (0이면 종료 ±1만). 기본은 run 내내 상수이며, `SHAPE_DECAY_FRAC>0`이면 감쇠
 - 출력: `orbit_net_rl.pt`(gated best, main_rl이 로드), `orbit_net_rl_last.pt`(최신), `rl_pool/`(스냅샷), `train_rl_log.csv`(per-iter 지표)
 - learner는 `orbit_net_rl.pt` 있으면 거기서 **이어서(resume)** 시작, pool도 디스크에서 복원
 - 곡선: `python plot_rl_log.py` → `train_rl_curves.png` (승률 / loss / entropy)
