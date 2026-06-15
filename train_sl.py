@@ -152,7 +152,6 @@ def main():
     print(f"device: {device}")
     net = OrbitNet().to(device)
     
-    # [수정] 옵티마이저를 먼저 정의해야 state를 불러올 수 있어!
     opt = torch.optim.Adam(net.parameters(), lr=LR, weight_decay=WEIGHT_DECAY)
 
     # Resume source resolution: --fresh forces scratch; an explicit --resume PATH
@@ -197,7 +196,7 @@ def main():
     # across epochs instead of re-spawning every epoch -- less spawn churn and
     # memory thrash on Windows, which was crashing workers mid-run.
     loader = DataLoader(train_ds, batch_size=BATCH, shuffle=True,
-                        num_workers=6, pin_memory=(device == "cuda"),
+                        num_workers=1, pin_memory=(device == "cuda"),
                         persistent_workers=True)
     val_loader = None
     if val_ds is not None:
