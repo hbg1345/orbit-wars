@@ -26,6 +26,7 @@ launch_dist_eval.jsonl
 data/parsed_cache/
 data/zips/
 rl_submission/
+sl_submission/
 # Model checkpoints / RL pool snapshots (orbit_net*.pt, rl_pool/snap*.pt)
 # orbit_net_rl.pt
 # orbit_net_rl_last.pt

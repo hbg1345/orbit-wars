@@ -184,6 +184,20 @@ def aim(src, world_trajectories, radii, target_idx, v, kmax=K_MAX_GLOBAL):
     sx, sy, src_r = float(src[2]), float(src[3]), float(src[4])
     target_r = radii[target_idx]
     target_traj = world_trajectories[target_idx]
+
+    def pos_at(t):
+        """Target position at a fractional turn t (linear interp of the integer-
+        sampled trajectory). None once the body has left the board."""
+        k0 = int(math.floor(t))
+        a = target_traj[k0]
+        if a is None:
+            return None
+        b = target_traj[k0 + 1] if k0 + 1 < len(target_traj) else None
+        if b is None:
+            return a
+        f = t - k0
+        return (a[0] + f * (b[0] - a[0]), a[1] + f * (b[1] - a[1]))
+
     for k in range(1, kmax + 1):
         pos = target_traj[k]
         if pos is None:
@@ -191,6 +205,32 @@ def aim(src, world_trajectories, radii, target_idx, v, kmax=K_MAX_GLOBAL):
         px, py = pos
         reach = math.hypot(px - sx, py - sy) - src_r
         if abs(v * k - reach) <= target_r:
+            # The integer-turn solution aims where the target IS at turn k, but a
+            # fleet covering v/turn meets a MOVING target at a fractional turn
+            # t* < k -- aiming at the turn-k spot over-leads and grazes small
+            # orbiting planets by a fraction of a step. Refine t* as the root of
+            # f(t) = v*t - reach(t) in [k-1, k] and aim at the interpolated spot.
+            # (Static target: reach is constant, so the spot/angle are unchanged.)
+            lo, hi = float(k - 1), float(k)
+            def f(t):
+                p = pos_at(t)
+                if p is None:
+                    return None
+                return v * t - (math.hypot(p[0] - sx, p[1] - sy) - src_r)
+            flo, fhi = f(lo), f(hi)
+            if flo is not None and fhi is not None and flo < 0.0 <= fhi:
+                for _ in range(24):
+                    mid = 0.5 * (lo + hi)
+                    fm = f(mid)
+                    if fm is None:
+                        break
+                    if fm >= 0.0:
+                        hi = mid
+                    else:
+                        lo = mid
+                refined = pos_at(0.5 * (lo + hi))
+                if refined is not None:
+                    px, py = refined
             angle = math.atan2(py - sy, px - sx)
             ox = sx + (src_r + 0.01) * math.cos(angle)
             oy = sy + (src_r + 0.01) * math.sin(angle)

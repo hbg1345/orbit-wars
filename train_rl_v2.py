@@ -30,7 +30,7 @@ from physics import decisions_to_moves
 
 # PPO & RL Hyperparameters
 GAMMA = 1
-GAE_LAMBDA = 0.95
+GAE_LAMBDA = 0.97
 LR = 1e-5
 VALUE_COEF = 0.5
 
@@ -45,8 +45,24 @@ WIN_SPEED_TREF = 500
 # reward: win/loss + rank/speed). Set > 0 to add the dense lead-margin signal.
 # Held CONSTANT over the run by default; set SHAPE_DECAY_FRAC > 0 to instead decay
 # it linearly to 0 over that fraction of the run (e.g., 1.0 = whole run).
-SHAPE_COEF = 1.0
+SHAPE_COEF = 0.5
 SHAPE_DECAY_FRAC = 0
+# The shaping potential blends two normalized lead terms: ships on the board and
+# owned-planet production (territory). PROD_WEIGHT scales the production term
+# relative to the ship term. Ships catch attrition (wasting a fleet drops your
+# ship lead); production catches captures (a tie that fails to take a planet
+# forfeits the production jump). Set PROD_WEIGHT=0 for the old ship-only potential.
+PROD_WEIGHT = 1.0
+
+# Penalty subtracted from the shaped reward when one of OUR fleets arrives and
+# leaves its TARGET NEUTRAL planet at exactly 0 ships without capturing it -- the
+# "one short" waste (attacker == garrison -> planet holds at 0; one more ship
+# takes it). Only neutral targets count (enemy planets are excluded). The penalty
+# is scaled by the target's PRODUCTION (ships/turn, 1..5): a high-output planet is
+# worth more, so failing to take it costs more. Unlike the lead-margin PBRS term
+# this is intentionally NON-potential: it changes the optimal policy on purpose,
+# to discourage under-committed attacks on neutrals. Set 0 to off.
+ZERO_PENALTY_COEF = 0.05
 
 # Small entropy bonus to keep the (stochastic) rollout policy from collapsing.
 # Only meaningful because rollouts SAMPLE; eval/deploy stay greedy. With the
@@ -78,10 +94,10 @@ DEBUG = False
 
 # Evaluation is itself a full set of rollouts (eval_games per iter). Running it
 # every iter roughly doubles rollout cost, so gate it.
-EVAL_EVERY = 5
+EVAL_EVERY = 15
 
 # [3] 카타스트로픽 망각을 막기 위한 League Pool 확장
-POOL_SIZE = 32
+POOL_SIZE = 8
 N_OPP = 3
 
 # Opponents are sampled UNIFORMLY from the league (all pool snapshots + SL teacher,
@@ -217,20 +233,13 @@ def to_action(decisions, obs, ids, ships):
     return decisions_to_moves(obs, decisions, ids, ships, kmax=K_MAX_GLOBAL)
 
 
-def _lead_margin(obs, me):
-    # Lead over the strongest rival as a fraction of all ships on the board:
-    # (my ships - best opponent's ships) / total. Per-step deltas of this reward
-    # EXTENDING a lead / closing a gap, which matches the real objective (be #1)
-    # far better than raw share -- especially in 4p, where maximising global
-    # share can keep rewarding an already-winning player. In 2p it reduces to
-    # 2*share - 1, so 2p behaviour is preserved (just scaled). owner -1 = neutral.
-    planets = obs.get("planets", []) or []
-    fleets = obs.get("fleets", []) or []
-    by_owner = {}
-    for p in planets:
-        by_owner[p[1]] = by_owner.get(p[1], 0.0) + p[5]
-    for f in fleets:
-        by_owner[f[1]] = by_owner.get(f[1], 0.0) + f[6]
+def _owner_margin(by_owner, me):
+    # Lead over the strongest rival as a fraction of the board total:
+    # (mine - best opponent) / total. Per-step deltas of this reward EXTENDING a
+    # lead / closing a gap, which matches the real objective (be #1) far better
+    # than raw share -- especially in 4p, where maximising global share can keep
+    # rewarding an already-winning player. In 2p it reduces to 2*share - 1, so 2p
+    # behaviour is preserved (just scaled). owner -1 = neutral (in total, not mine).
     total = sum(by_owner.values())
     if total <= 0:
         return 0.0
@@ -238,6 +247,55 @@ def _lead_margin(obs, me):
     others = [v for o, v in by_owner.items() if o >= 0 and o != me]
     best_other = max(others) if others else 0.0
     return (mine - best_other) / total
+
+
+def _lead_margin(obs, me):
+    # Shaping potential = ship-lead + PROD_WEIGHT * production-lead, each a
+    # separately-normalized owner margin (see _owner_margin). Ships (planets +
+    # in-flight fleets) catch attrition; production (planets only -- fleets carry
+    # no production) catches territory: capturing a planet jumps the production
+    # lead, so a tie that fails to capture forfeits that jump.
+    planets = obs.get("planets", []) or []
+    fleets = obs.get("fleets", []) or []
+    ships, prod = {}, {}
+    for p in planets:
+        o = p[1]
+        ships[o] = ships.get(o, 0.0) + p[5]
+        prod[o] = prod.get(o, 0.0) + p[6]
+    for f in fleets:
+        ships[f[1]] = ships.get(f[1], 0.0) + f[6]
+    return _owner_margin(ships, me) + PROD_WEIGHT * _owner_margin(prod, me)
+
+
+def _zeroing_penalty(tracked, launches, obs_before, obs_after, me):
+    """Track each of OUR in-flight fleets -> its target planet, and charge the
+    target's production whenever a tracked fleet vanishes this turn while its
+    TARGET is a NEUTRAL planet left at 0 ships (an under-committed attack that
+    zeroed a neutral but failed to take it). `tracked` is the per-seat live
+    {fleet_id: (target_id, target_prod)} map, mutated in place. `launches` is this
+    turn's {source_planet_id: (target_id, target_prod)} for the fleets we just
+    ordered. Returns the summed wasted-target production (0 if none). Only neutral
+    targets (owner -1) count -- captures, reinforcements, and enemy planets do not."""
+    fb = {int(f[0]) for f in (obs_before.get("fleets") or [])}
+    fa = {int(f[0]): f for f in (obs_after.get("fleets") or [])}
+    pa = {int(p[0]): p for p in (obs_after.get("planets") or [])}
+    # 1) tracked fleets that disappeared this turn -> charge if target zeroed, untaken
+    penalty = 0.0
+    for fid in list(tracked):
+        if fid in fa:
+            continue                              # still flying
+        tid, prod = tracked.pop(fid)
+        t = pa.get(tid)
+        if t is not None and int(t[1]) == -1 and float(t[5]) == 0.0:
+            penalty += prod                       # neutral planet only (owner -1)
+    # 2) register the fleets we launched this turn (new fleets matched by source)
+    for fid, f in fa.items():
+        if fid in fb or fid in tracked or int(f[1]) != me:
+            continue
+        tgt = launches.get(int(f[5]))             # f[5] = from_planet_id
+        if tgt is not None:
+            tracked[fid] = tgt
+    return penalty
 
 
 def _rank_rewards(rewards, n):
@@ -269,18 +327,25 @@ def play_game(nets, record_seats=None, greedy_seats=None, track_seat=None):
     # Per-game canonicalisation per seat (rotate start quadrant -> Q1, CCW enemy
     # keys), computed ONCE from the initial board and reused every turn.
     canons = [F.compute_canon(env.state[p]["observation"]) for p in range(n)]
+    fleet_target = [{} for _ in range(n)]     # per seat: live fleet_id -> (target_id, target_prod)
     turns = 0
     while not env.done:
         actions = []
         before = {}
+        obs_seen = {}                 # raw obs each keep-seat acted on this turn
+        launch_tgt = {}               # keep-seat -> {source_planet_id: (target_id, target_prod)}
         for p in range(n):
             obs = env.state[p]["observation"]
             feats, valid, mine, ids, xs, ys, ships = F.extract(obs, eta_cache=eta_caches[p], canon=canons[p])
-            if p in keep:                                  
+            if p in keep:
                 decisions, rec = nets[p].act_rl(feats, valid, mine, gate_bias=GATE_SAMPLE_BIAS)
                 data[p].append((feats, valid, mine, rec))
                 before[p] = _lead_margin(obs, p)
-            elif p in greedy_seats:                        
+                obs_seen[p] = obs
+                prod_of = {int(pl[0]): float(pl[6]) for pl in (obs.get("planets") or [])}
+                launch_tgt[p] = {int(ids[s]): (int(ids[tg]), prod_of.get(int(ids[tg]), 1.0))
+                                 for (s, tg, _fr) in decisions}
+            elif p in greedy_seats:
                 decisions = nets[p].act(feats, valid, mine, greedy=True,
                                         gate_threshold=GATE_THRESHOLD)
             else:
@@ -298,8 +363,15 @@ def play_game(nets, record_seats=None, greedy_seats=None, track_seat=None):
             # policy-invariant: it can only speed learning, never change the
             # optimal policy, and it never double-counts the env's win/loss
             # reward at the final step (Phi(s') is forced to 0 there).
-            phi_next = 0.0 if terminal else _lead_margin(env.state[p]["observation"], p)
-            shaped[p].append(GAMMA * phi_next - before[p])
+            obs_after = env.state[p]["observation"]
+            phi_next = 0.0 if terminal else _lead_margin(obs_after, p)
+            sval = GAMMA * phi_next - before[p]
+            # Non-potential behavior penalty: a tracked fleet that vanished this
+            # turn leaving its target at 0 ships and untaken (see _zeroing_penalty),
+            # scaled by the target's production.
+            penalty = _zeroing_penalty(fleet_target[p], launch_tgt.get(p, {}),
+                                       obs_seen[p], obs_after, p)
+            shaped[p].append(sval - ZERO_PENALTY_COEF * penalty)
     rewards = [float(env.state[p]["reward"] or 0.0) for p in range(n)]
     # Winner-take-all reward straight from the env's terminal rewards (highest =
     # winner; the env already decides this). Sole winner +1, everyone else -1, in
@@ -370,7 +442,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--iters", type=int, default=2000)
     ap.add_argument("--games", type=int, default=99)
-    ap.add_argument("--eval-games", type=int, default=150,
+    ap.add_argument("--eval-games", type=int, default=99,
                     help="games per iter for pure greedy evaluation; 2:1 2p:4p split "
                          "(default 150 -> 100 2p vsSL + 50 4p vs top3)")
     ap.add_argument("--workers", type=int, default=min(10, os.cpu_count() or 1))
