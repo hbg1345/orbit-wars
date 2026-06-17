@@ -9,10 +9,11 @@
 #   ./download_latest.sh 5 1         # latest 5, sequential (one at a time)
 set -euo pipefail
 
+
 MANIFEST="data/manifest.csv"
 DEST="data/zips"
 N="${1:-5}"          # how many of the latest datasets to fetch
-JOBS="${2:-4}"       # max concurrent downloads (Kaggle rate-limits, so keep modest)
+JOBS="${2:-5}"       # max concurrent downloads (Kaggle rate-limits, so keep modest)
 
 mkdir -p "$DEST"
 
