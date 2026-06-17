@@ -27,7 +27,7 @@ else:
 if _HERE not in sys.path:
     sys.path.insert(0, _HERE)
 
-GATE_THRESHOLD = 0.6
+GATE_THRESHOLD = 0.5
 K_MAX_GLOBAL = 50
 
 from physics import decisions_to_moves as _decisions_to_moves
@@ -37,7 +37,7 @@ from physics import decisions_to_moves as _decisions_to_moves
 # ==============================================================================
 _net = OrbitNet()
 _net.load_state_dict(torch.load(os.path.join(_HERE, "orbit_net_rl.pt"),
-                                map_location="cpu"), strict=False)
+                                map_location="cpu", weights_only=False), strict=False)
 _net.eval()
 _canon = None   # per-game canonicalisation (rotate my start -> Q1, CCW enemy keys)
 

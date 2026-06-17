@@ -77,7 +77,7 @@ def _load_state(path):
     strict=False) silently matches ZERO keys and leaves the net at random init
     (the bug that made the agent never attack). Falls back to the raw-state_dict
     format for older checkpoints. torch.load still raises if the file is missing."""
-    ckpt = torch.load(path, map_location="cpu")
+    ckpt = torch.load(path, map_location="cpu", weights_only=False)
     if isinstance(ckpt, dict) and "model_state_dict" in ckpt:
         return ckpt["model_state_dict"]
     return ckpt

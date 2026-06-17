@@ -31,8 +31,11 @@ def _obs_get(obs, key, default):
 
 
 def fleet_speed(ships):
-    """Fleet speed scales with size on a log curve (orbit_star.md)."""
-    return 1.0 + (MAX_SPEED - 1.0) * (math.log(max(ships, 1)) / math.log(1000.0)) ** 1.5
+    """Fleet speed scales with size on a log curve (orbit_star.md), capped at
+    MAX_SPEED -- the engine clamps with min(speed, max_speed), so fleets over
+    ~1000 ships do not exceed the cap (orbit_wars.py interpreter)."""
+    speed = 1.0 + (MAX_SPEED - 1.0) * (math.log(max(ships, 1)) / math.log(1000.0)) ** 1.5
+    return min(speed, MAX_SPEED)
 
 
 def seg_point_dist(ax, ay, bx, by, px, py):
@@ -149,38 +152,44 @@ def build_world(obs):
 # identical geometry. (Previously copy-pasted in each.)
 # --------------------------------------------------------------------------- #
 K_MAX_GLOBAL = 50              # near-range search horizon (turns) for aiming
+SPAWN_GAP = 0.1                # engine spawns a fleet this far outside the source
 
 
-def path_blocked(sx, sy, angle, v, world_trajectories, radii, target_idx, k_hit):
-    """True if, before reaching the target at turn k_hit, the fleet's straight
-    path crosses the sun, leaves the board, or hits another planet/comet."""
+def trace_fleet(sx, sy, angle, v, world_trajectories, radii, kmax):
+    """Engine-faithful straight-line trace of a fleet launched from (sx, sy):
+    return (hit_index, arrival_turn) for the first body it strikes, or
+    (None, None) if it crosses the sun / leaves the board first.
+
+    Mirrors the engine's fleet step exactly -- swept continuous collision under
+    simultaneous fleet+body motion, bodies tested in world order with the first
+    hit winning, and NO source exclusion (the engine relies on the SPAWN_GAP
+    offset, not exclusion). Same physics as forecast._fleet_eta, so an aimed
+    angle is accepted only when the fleet actually reaches the intended target
+    first -- this both validates the path (no intervening body / sun / edge) and
+    yields the exact arrival turn the engine will produce."""
     cosA, sinA = math.cos(angle), math.sin(angle)
     px, py = sx, sy
-    prev = [traj[0] for traj in world_trajectories]   # current positions, O(1)
-    for k in range(1, k_hit + 1):
+    for k in range(1, kmax + 1):
         fx, fy = sx + v * k * cosA, sy + v * k * sinA
-        if seg_point_dist(px, py, fx, fy, CENTER[0], CENTER[1]) <= SUN_RADIUS:
-            return True
-        if not (0.0 <= fx <= BOARD and 0.0 <= fy <= BOARD):
-            return True
         for i, traj in enumerate(world_trajectories):
-            if i == target_idx:
-                continue
-            q = traj[k]
-            if q is None:
-                continue
-            p = prev[i]
-            prev[i] = q
-            if p is None:
+            p, q = traj[k - 1], traj[k]
+            if p is None or q is None:
                 continue
             if swept_dist(px, py, fx, fy, p[0], p[1], q[0], q[1]) <= radii[i]:
-                return True
+                return i, k
+        if not (0.0 <= fx <= BOARD and 0.0 <= fy <= BOARD):
+            return None, None
+        if seg_point_dist(px, py, fx, fy, CENTER[0], CENTER[1]) <= SUN_RADIUS:
+            return None, None
         px, py = fx, fy
-    return False
+    return None, None
 
 
 def aim(src, world_trajectories, radii, target_idx, v, kmax=K_MAX_GLOBAL):
-    """Launch angle to hit `target`, or None if uncatchable / path blocked."""
+    """Launch angle to hit `target` in the fewest turns, or None if uncatchable
+    or every catching shot is blocked. The candidate angle (with fractional-turn
+    lead refinement) is verified by trace_fleet, so a returned angle is one the
+    engine will actually land on the target."""
     sx, sy, src_r = float(src[2]), float(src[3]), float(src[4])
     target_r = radii[target_idx]
     target_traj = world_trajectories[target_idx]
@@ -203,7 +212,7 @@ def aim(src, world_trajectories, radii, target_idx, v, kmax=K_MAX_GLOBAL):
         if pos is None:
             break
         px, py = pos
-        reach = math.hypot(px - sx, py - sy) - src_r
+        reach = math.hypot(px - sx, py - sy) - (src_r + SPAWN_GAP)
         if abs(v * k - reach) <= target_r:
             # The integer-turn solution aims where the target IS at turn k, but a
             # fleet covering v/turn meets a MOVING target at a fractional turn
@@ -216,7 +225,7 @@ def aim(src, world_trajectories, radii, target_idx, v, kmax=K_MAX_GLOBAL):
                 p = pos_at(t)
                 if p is None:
                     return None
-                return v * t - (math.hypot(p[0] - sx, p[1] - sy) - src_r)
+                return v * t - (math.hypot(p[0] - sx, p[1] - sy) - (src_r + SPAWN_GAP))
             flo, fhi = f(lo), f(hi)
             if flo is not None and fhi is not None and flo < 0.0 <= fhi:
                 for _ in range(24):
@@ -232,9 +241,15 @@ def aim(src, world_trajectories, radii, target_idx, v, kmax=K_MAX_GLOBAL):
                 if refined is not None:
                     px, py = refined
             angle = math.atan2(py - sy, px - sx)
-            ox = sx + (src_r + 0.01) * math.cos(angle)
-            oy = sy + (src_r + 0.01) * math.sin(angle)
-            if not path_blocked(ox, oy, angle, v, world_trajectories, radii, target_idx, k):
+            # Spawn the fleet exactly where the engine does (SPAWN_GAP outside the
+            # source) and trace it with the engine's own collision physics. Accept
+            # the angle only if the fleet reaches the intended target first; this
+            # rejects shots blocked by an intervening body/sun/edge and guarantees
+            # the same landing the engine produces.
+            ox = sx + (src_r + SPAWN_GAP) * math.cos(angle)
+            oy = sy + (src_r + SPAWN_GAP) * math.sin(angle)
+            hit_idx, _ = trace_fleet(ox, oy, angle, v, world_trajectories, radii, kmax)
+            if hit_idx == target_idx:
                 return angle
     return None
 

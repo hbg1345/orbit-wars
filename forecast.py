@@ -46,26 +46,28 @@ def _fleet_eta(fleet, at, kmax):
     leaves the board / crosses the sun before hitting a planet within kmax.
 
     fleet = [id, owner, x, y, angle, from_planet_id, ships]. Collision is the
-    same continuous segment test the engine uses; the source planet is excluded
-    (a fleet never lands back on the planet it launched from)."""
+    same continuous segment test the engine uses. The source planet is NOT
+    excluded: the engine never excludes it either (it just spawns the fleet
+    radius+0.1 outside), so an orbiting source that later rotates back into the
+    fleet's path recaptures it -- excluding it permanently made forecast miss
+    those return arrivals (verify_forecast_multi.py)."""
     sx, sy = float(fleet[2]), float(fleet[3])
-    src = int(fleet[5])
     v = P.fleet_speed(fleet[6])
     cosA, sinA = math.cos(float(fleet[4])), math.sin(float(fleet[4]))
 
     px, py = sx, sy
     for k in range(1, kmax + 1):
         fx, fy = sx + v * k * cosA, sy + v * k * sinA
-        best_id, best_d = None, math.inf
+        # Continuous collision under simultaneous fleet+body motion. The engine
+        # iterates obs.planets in order and takes the FIRST body it intersects
+        # (orbit_wars.py: break on first swept hit); at(k) preserves that order,
+        # so we return the first hit too rather than the nearest one.
         for (bid, radius, p), (_, _, q) in zip(at(k - 1), at(k)):
-            if bid == src or p is None or q is None:
+            if p is None or q is None:
                 continue
-            # Continuous collision under simultaneous fleet+body motion.
             d = P.swept_dist(px, py, fx, fy, p[0], p[1], q[0], q[1])
-            if d <= radius and d < best_d:
-                best_id, best_d = bid, d
-        if best_id is not None:
-            return best_id, k
+            if d <= radius:
+                return bid, k
         if P.seg_point_dist(px, py, fx, fy, P.SUN_CENTER[0], P.SUN_CENTER[1]) <= P.SUN_RADIUS:
             return None, None
         if not (0.0 <= fx <= P.BOARD and 0.0 <= fy <= P.BOARD):
