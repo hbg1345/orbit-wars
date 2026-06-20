@@ -30,7 +30,7 @@ sl_submission/
 # Model checkpoints / RL pool snapshots (orbit_net*.pt, rl_pool/snap*.pt)
 # orbit_net_rl.pt
 # orbit_net_rl_last.pt
-rl_pool/
+# rl_pool/
 *.tar.gz
 
 # Plots / generated figures -- uncomment to stop tracking them.
