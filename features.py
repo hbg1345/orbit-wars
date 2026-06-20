@@ -137,7 +137,11 @@ def compute_canon(obs):
 
 
 def extract(obs, eta_cache=None, canon=None):
-    """Return (feats, valid_mask, mine_mask, ids, xs, ys, ships).
+    """Return (feats, valid_mask, mine_mask, ids, xs, ys, ships, traj).
+
+    traj is the forecast.simulate output (per-planet owner/garrison/position over
+    HORIZON turns); returned so the caller can feed it to decisions_to_moves
+    without re-simulating the same board.
 
     eta_cache: optional per-episode dict forwarded to forecast.simulate to reuse
     fleet arrival trajectories across steps (see simulate). None at play time.
@@ -234,4 +238,4 @@ def extract(obs, eta_cache=None, canon=None):
         ys[i] = y
         ships[i] = n_ships
 
-    return feats, valid_mask, mine_mask, ids, xs, ys, ships
+    return feats, valid_mask, mine_mask, ids, xs, ys, ships, traj

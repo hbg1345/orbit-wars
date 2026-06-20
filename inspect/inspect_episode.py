@@ -145,7 +145,7 @@ def main():
             if not obs.get("planets"):
                 continue
 
-            feats, valid, mine, ids, xs, ys, ships = F.extract(obs, canon=canon)
+            feats, valid, mine, ids, xs, ys, ships, _traj = F.extract(obs, canon=canon)
             id2slot = {int(pid): i for i, pid in enumerate(ids) if pid >= 0}
             human = _resolve_human(steps, fleet_idx, t, winner, ids, id2slot, mine)
 

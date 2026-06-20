@@ -61,10 +61,10 @@ def reference_death_turn(nets, seat):
         actions = []
         for p in range(n):
             obs = env.state[p]["observation"]
-            feats, valid, mine, ids, xs, ys, ships = F.extract(
+            feats, valid, mine, ids, xs, ys, ships, traj = F.extract(
                 obs, eta_cache=eta[p], canon=canons[p])
             decisions, _ = nets[p].act_rl(feats, valid, mine, gate_bias=GATE_SAMPLE_BIAS)
-            actions.append(to_action(decisions, obs, ids, ships))
+            actions.append(to_action(decisions, obs, ids, ships, traj=traj))
         env.step(actions)
         turns += 1
         if death is None and _is_eliminated(env.state[seat]["observation"], seat):
@@ -99,7 +99,7 @@ def test_truncation():
     for s in range(N_GAMES):
         reseed(s)
         t0 = time.perf_counter()
-        data, rewards, shaped, turns, _rr, _tf = play_game(
+        data, rewards, shaped, turns, _rr, _tf, _de, _dp = play_game(
             nets, record_seats={SEAT}, greedy_seats=set(), track_seat=None)
         t_trunc += time.perf_counter() - t0
         rec_len = len(data[SEAT])

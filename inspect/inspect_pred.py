@@ -56,7 +56,7 @@ def main():
     obs = steps[t - 1][winner]["observation"]   # pre-action board the agent saw
     action = steps[t][winner].get("action") or []
 
-    feats, valid, mine, ids, xs, ys, ships = F.extract(obs)
+    feats, valid, mine, ids, xs, ys, ships, _traj = F.extract(obs)
     ft = torch.as_tensor(feats, dtype=torch.float32).unsqueeze(0)
     vm = torch.as_tensor(valid, dtype=torch.bool).unsqueeze(0)
     mm = torch.as_tensor(mine, dtype=torch.bool).unsqueeze(0)

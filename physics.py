@@ -154,6 +154,15 @@ def build_world(obs):
 K_MAX_GLOBAL = 50              # near-range search horizon (turns) for aiming
 SPAWN_GAP = 0.1                # engine spawns a fleet this far outside the source
 
+# When the direct minimal-time lead angle is blocked (sun/body/edge), aim() retries
+# a small angular sweep around that intercept direction -- enough to clear a GRAZING
+# block where the straight path just nicks the sun's edge or an intervening planet.
+# ±3 deg only, in 0.5 deg steps: this rescues "slightly angled" shots, NOT targets
+# fully behind the sun (that needs a much wider detour). Widen SWEEP_MAX to also
+# route around full occlusions.
+SWEEP_MAX = math.radians(3.0)
+SWEEP_STEP = math.radians(0.5)
+
 
 def trace_fleet(sx, sy, angle, v, world_trajectories, radii, kmax):
     """Engine-faithful straight-line trace of a fleet launched from (sx, sy):
@@ -207,6 +216,7 @@ def aim(src, world_trajectories, radii, target_idx, v, kmax=K_MAX_GLOBAL):
         f = t - k0
         return (a[0] + f * (b[0] - a[0]), a[1] + f * (b[1] - a[1]))
 
+    blocked = []                   # exact intercept angles that traced as obstructed
     for k in range(1, kmax + 1):
         pos = target_traj[k]
         if pos is None:
@@ -251,6 +261,21 @@ def aim(src, world_trajectories, radii, target_idx, v, kmax=K_MAX_GLOBAL):
             hit_idx, _ = trace_fleet(ox, oy, angle, v, world_trajectories, radii, kmax)
             if hit_idx == target_idx:
                 return angle
+            blocked.append(angle)            # exact shot obstructed -> sweep candidate
+
+    # Fallback: every exact lead angle was blocked. Nudge each blocked candidate
+    # (soonest-arrival first) by up to ±SWEEP_MAX, smallest nudge first, and accept
+    # the first angle trace_fleet confirms still lands on the target -- threading a
+    # grazing sun/planet edge. Early-exit on the first hit keeps this cheap.
+    n_steps = int(round(SWEEP_MAX / SWEEP_STEP))
+    for base in blocked:
+        for j in range(1, n_steps + 1):
+            for angle in (base + j * SWEEP_STEP, base - j * SWEEP_STEP):
+                ox = sx + (src_r + SPAWN_GAP) * math.cos(angle)
+                oy = sy + (src_r + SPAWN_GAP) * math.sin(angle)
+                hit_idx, _ = trace_fleet(ox, oy, angle, v, world_trajectories, radii, kmax)
+                if hit_idx == target_idx:
+                    return angle
     return None
 
 

@@ -28,11 +28,12 @@ from dataset import load_cached
 EPOCHS = 300
 LR = 5e-4
 WEIGHT_DECAY = 5e-5       # L2 regularization (cf. supervised.py)
-SHIP_LOSS_WEIGHT = 0.5    # ship loss is the cross-entropy of the human launch
-                          # fraction binned into SHIP_BINS classes (discrete ship
-                          # head), so SL fits the full launch-fraction distribution,
-                          # not just its mean. Tune down if the ship term dominates
-                          # gate/target.
+SHIP_LOSS_WEIGHT = 0.5    # weight of the amount-MODE BCE (all-in vs min-capture)
+                          # in the SL loss. The exact ship count is no longer
+                          # learned (the heuristic derives it), so SL only fits the
+                          # binary mode. Tune down if it dominates gate/target.
+ALLIN_FRAC = 0.9          # human launch labelled all-in (mode 1) if it sent at
+                          # least this fraction of the source garrison, else min (0).
 # Launches are only ~16% of owned-planet decisions, so up-weight the positive
 # class in the gate BCE (~ n_neg / n_pos = 84.3 / 15.7). This both pushes launch
 # probabilities up (so a ~0.5 threshold works) and gives the rare launch class
@@ -55,7 +56,7 @@ def compute_losses(net, batch, device):
     ships = batch["ships"].to(device)          # fraction of source garrison [0,1]
     has_ship = batch["has_ship"].to(device)
 
-    # Current OrbitNet: encoder + (gate_head, q/k target attention, ship_head).
+    # Current OrbitNet: encoder + (gate_head, q/k target attention, mode_head).
     # forward -> target_logits [B,N,N], gate_logits [B,N], h [B,N,D].
     target_logits, gate_logits, h = net(feats, valid, mine)
 
@@ -69,14 +70,10 @@ def compute_losses(net, batch, device):
     act_launched = has_ship[bidx, pidx].bool()    # 유효한 on-board target으로 실제 발사한 행성
     human_tgt = target[bidx, pidx].clamp(min=0)   # -1(미발사)은 0으로; noop 처리되므로 무방
     frac = ships[bidx, pidx].clamp(0.0, 1.0)
-    # 사람 비율 -> bin index (model.bin_to_fraction의 역변환):
-    # bin 0~99 = (b+0.5)/100 (0.5%..99.5%), bin 100 = 100%. frac>=99.5%는 bin 100.
-    denom = net.SHIP_BINS - 1                      # = 100
-    bin_all = torch.where(
-        frac >= 1.0 - 0.5 / denom,
-        torch.full_like(frac, float(denom)),
-        (frac * denom - 0.5).round().clamp(0, denom - 1),
-    ).long()
+    # Amount-mode label from the human launch: all-in (1) if they sent ~the whole
+    # garrison, else min-capture (0). Only this binary mode is supervised now --
+    # the exact ship count is derived by the heuristic, not the network.
+    mode_label = (frac >= ALLIN_FRAC).float()
 
     # Launch gate: 내 모든 행성에 대한 BCE (gate_head는 target 조건 없이 행성 임베딩만 사용).
     gate_loss = Fn.binary_cross_entropy_with_logits(
@@ -91,15 +88,15 @@ def compute_losses(net, batch, device):
         # Target: 해당 source 행성의 target_logits [N]에 대한 CE
         tgt_loss = Fn.cross_entropy(target_logits[mb, mp], mtgt)
 
-        # Ship bin: (source, human_target) 쌍 임베딩 -> ship_head [SHIP_BINS] CE.
-        # ship_logits(h, b_idx, src, tgt)는 h[b_idx, src] 식으로 배치 인덱싱한다.
-        s_logits = net.ship_logits(h, mb, mp, mtgt)
-        ship_loss = Fn.cross_entropy(s_logits, bin_all[m])
+        # Amount mode: (source, human_target) pair embedding -> binary BCE
+        # (all-in vs min-capture). mode_logit(h, b_idx, src, tgt) batch-indexes
+        # h[b_idx, src] like the old ship head did.
+        mlog = net.mode_logit(h, mb, mp, mtgt)
+        ship_loss = Fn.binary_cross_entropy_with_logits(mlog, mode_label[m])
 
-        # Diagnostic: argmax bin을 실수 비율로 변환한 MSE
+        # Diagnostic (not a loss): mode prediction accuracy.
         with torch.no_grad():
-            pred_frac = net.bin_to_fraction(s_logits.argmax(dim=-1)).clamp(0.0, 1.0)
-            ship_mse = Fn.mse_loss(pred_frac, frac[m])
+            ship_mse = ((mlog >= 0).float() == mode_label[m]).float().mean()
     else:
         z0 = torch.zeros((), device=device)
         tgt_loss = ship_loss = ship_mse = z0
@@ -195,6 +192,16 @@ def main():
     # Manual override always wins over the checkpoint's saved epoch.
     if args.start_epoch is not None:
         start_epoch = args.start_epoch
+
+    # Model size summary (after construction + any checkpoint load).
+    n_total = sum(p.numel() for p in net.parameters())
+    n_train = sum(p.numel() for p in net.parameters() if p.requires_grad)
+    print(f"model parameters: {n_total:,} total "
+          f"({n_train:,} trainable, {n_total / 1e6:.2f}M)")
+    for name, mod in net.named_children():
+        c = sum(p.numel() for p in mod.parameters())
+        if c:
+            print(f"  {name:12s} {c:>12,}")
 
     # persistent_workers: keep workers (and their lazily-opened memmaps) alive
     # across epochs instead of re-spawning every epoch -- less spawn churn and

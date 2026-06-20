@@ -41,7 +41,7 @@ def check_obs(obs, canon, tol=1e-5):
     rot_k = canon["rot_k"]
 
     traj = forecast.simulate(obs, F.HORIZON)
-    feats, valid, _mine, ids, _xs, _ys, _sh = F.extract(obs, canon=canon)
+    feats, valid, _mine, ids, _xs, _ys, _sh, _traj = F.extract(obs, canon=canon)
 
     errs = []
     n = 0

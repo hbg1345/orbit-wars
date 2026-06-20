@@ -191,3 +191,151 @@ def simulate(obs, horizon, eta_cache=None):
 
     return {pid: (owner_seq[pid], ships_seq[pid], posx_seq[pid], posy_seq[pid])
             for pid in ids}
+
+
+# ---------------------------------------------------------------------------
+# Minimum-capture fleet heuristic
+# ---------------------------------------------------------------------------
+# How many ships to send is NOT a learned policy output -- it is derived from
+# physics + this forecast. Given a (source, target), find the SMALLEST fleet that
+# both (a) reaches the target and (b) outnumbers its garrison at arrival -- the
+# cheapest capture, struck at whichever turn the forecast makes easiest (e.g.
+# right after someone else has weakened it). Fleet speed is size-dependent
+# (P.fleet_speed), so fleet size and arrival turn are coupled; we seed candidate
+# sizes from the forecast and let aim/trace_fleet confirm the real, collision-
+# checked path. Combat (orbit_star.md): capture needs attackers > garrison
+# (a tie destroys both), hence garrison + 1.
+
+_LN1000 = math.log(1000.0)
+_MAX_SCAN = 10                      # extra speed samples tried when the min fleet is blocked
+
+
+def ships_for_speed(v):
+    """Fewest ships whose fleet_speed reaches v (inverse of P.fleet_speed).
+    None if v exceeds the speed cap (no fleet can travel that fast)."""
+    if v <= 1.0:
+        return 1
+    if v > P.MAX_SPEED:
+        return None
+    return math.ceil(math.exp(_LN1000 * ((v - 1.0) / (P.MAX_SPEED - 1.0)) ** (2.0 / 3.0)))
+
+
+def _try_fleet(n, src, target_idx, ships_seq, world_traj, radii, kmax):
+    """Launch n ships at target_idx and verify with engine-faithful geometry:
+    (n, angle) if the fleet actually reaches the target AND outnumbers its
+    garrison at the real arrival turn, else None. Different n -> different speed
+    -> different (moving-)target lead angle and crossing TIMING, so each size is
+    re-aimed and re-traced rather than assumed from arrival turn alone."""
+    v = P.fleet_speed(n)
+    angle = P.aim(src, world_traj, radii, target_idx, v, kmax)
+    if angle is None:                                  # uncatchable / every shot blocked
+        return None
+    sx, sy, src_r = src[2], src[3], src[4]
+    ox = sx + (src_r + P.SPAWN_GAP) * math.cos(angle)
+    oy = sy + (src_r + P.SPAWN_GAP) * math.sin(angle)
+    hit, arr = P.trace_fleet(ox, oy, angle, v, world_traj, radii, kmax)
+    if hit != target_idx or arr is None or arr > len(ships_seq):
+        return None                                    # arrival past forecast horizon -> unknown defense
+    if n <= int(ships_seq[arr - 1]):                   # must outnumber garrison at arrival
+        return None
+    return n, angle
+
+
+def min_capture_fleet(src, target_id, target_idx, traj, world_traj, radii,
+                      avail, player, kmax=P.K_MAX_GLOBAL):
+    """Smallest fleet (<= avail) from `src` that captures planet `target_id`,
+    using `traj` (a simulate() output) for the target's per-turn owner, garrison
+    and position. Returns (n_ships, launch_angle) or None if uncapturable.
+
+    src        : source planet row [id, owner, x, y, radius, ships, ...].
+    target_idx : index of the target in P.build_world order (for aim/world_traj).
+    avail      : ships currently available at the source."""
+    sx, sy, src_r = src[2], src[3], src[4]
+    owner_seq, ships_seq, posx, posy = traj[target_id]
+
+    # Seed: smallest fleet over all forecast turns, n(t) = max(ships to ARRIVE by
+    # turn t, garrison@t + 1). The max resolves the speed<->size coupling.
+    n0 = None
+    for t in range(1, len(ships_seq) + 1):
+        o = owner_seq[t - 1]
+        if o == GONE or o == player:                   # gone (comet) / already ours -> skip
+            continue
+        reach = math.hypot(posx[t - 1] - sx, posy[t - 1] - sy) - (src_r + P.SPAWN_GAP)
+        n_arr = ships_for_speed(reach / t)
+        if n_arr is None:                              # too far to arrive by turn t
+            continue
+        n = max(n_arr, int(ships_seq[t - 1]) + 1)
+        if n <= avail and (n0 is None or n < n0):
+            n0 = n
+    if n0 is None:
+        return None                                    # can't capture even with everything
+
+    # Cheapest fleet first -- one aim call in the common (unblocked) case.
+    hit = _try_fleet(n0, src, target_idx, ships_seq, world_traj, radii, kmax)
+    if hit:
+        return hit
+
+    # Blocked: a faster (bigger) fleet crosses the path EARLIER, so a moving
+    # planet/comet sitting on the line may not be there yet -- this can unblock
+    # even a STATIC target (same line, different timing). Scan up to _MAX_SCAN
+    # larger sizes at equal speed steps; the smallest success wins.
+    v0, vhi = P.fleet_speed(n0), P.fleet_speed(avail)
+    if vhi <= v0:
+        return None
+    step = (vhi - v0) / _MAX_SCAN
+    seen = set()
+    for i in range(1, _MAX_SCAN + 1):
+        n = ships_for_speed(v0 + i * step)
+        if n is None or n <= n0 or n > avail or n in seen:
+            continue
+        seen.add(n)
+        hit = _try_fleet(n, src, target_idx, ships_seq, world_traj, radii, kmax)
+        if hit:
+            return hit
+    return None
+
+
+def decisions_to_moves(obs, decisions, ids, ships, kmax=P.K_MAX_GLOBAL, horizon=20,
+                       traj=None):
+    """Convert model decisions [(src_idx, tgt_idx, mode), ...] into engine moves
+    [[from_planet_id, angle_rad, num_ships], ...]. The amount is NOT in the
+    decision -- `mode` selects how the heuristic sizes the fleet:
+        mode 0 (min-capture): forecast.min_capture_fleet -> smallest reaching,
+                              capturing fleet (None -> launch dropped).
+        mode 1 (all-in):      send the whole garrison, aimed at the target.
+    `ids[idx]` maps a model planet index to its planet id; `ships[idx]` is the
+    source's available garrison. `horizon` must match features.HORIZON (the
+    forecast depth the policy was trained on)."""
+    if not decisions:
+        return []
+    raw = obs.get("planets", []) if isinstance(obs, dict) else getattr(obs, "planets", [])
+    by_id = {int(p[0]): p for p in raw}
+    world = P.build_world(obs)
+    world_traj = [[w["predict"](k) for k in range(kmax + 1)] for w in world]
+    radii = [w["radius"] for w in world]
+    id_to_idx = {w["id"]: i for i, w in enumerate(world)}
+    if traj is None:                                    # reuse extract's forecast if given
+        traj = simulate(obs, horizon, eta_cache=None)
+    player = obs.get("player", 0) if isinstance(obs, dict) else getattr(obs, "player", 0)
+
+    moves = []
+    for src, tgt, mode in decisions:
+        src_id, tgt_id = int(ids[src]), int(ids[tgt])
+        sp = by_id.get(src_id)
+        avail = int(ships[src])
+        if sp is None or tgt_id not in id_to_idx or avail < 1:
+            continue
+        tidx = id_to_idx[tgt_id]
+        if mode == 1:                                   # all-in: send everything
+            n = avail
+            angle = P.aim(sp, world_traj, radii, tidx, P.fleet_speed(n), kmax)
+            if angle is None:
+                continue
+        else:                                           # min-capture
+            res = min_capture_fleet(sp, tgt_id, tidx, traj, world_traj, radii,
+                                    avail, player, kmax)
+            if res is None:
+                continue
+            n, angle = res
+        moves.append([src_id, angle, int(n)])
+    return moves

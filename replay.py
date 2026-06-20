@@ -172,7 +172,7 @@ def parse_episode_data(d, perspective="winner"):
                 continue
             action = steps[t][p].get("action") or []        # decided on obs[t-1]
 
-            feats, valid, mine, ids, xs, ys, ships = F.extract(obs, eta_cache=eta_caches[p], canon=canons[p])
+            feats, valid, mine, ids, xs, ys, ships, _traj = F.extract(obs, eta_cache=eta_caches[p], canon=canons[p])
             N = F.MAX_PLANETS
             id2slot = {int(pid): i for i, pid in enumerate(ids) if pid >= 0}
 

@@ -33,11 +33,11 @@ def profile(n_games=3, n_players=2):
             for p in range(n_players):
                 obs = env.state[p]["observation"]
                 a = time.perf_counter()
-                feats, valid, mine, ids, xs, ys, ships = F.extract(obs, eta_cache=eta[p])
+                feats, valid, mine, ids, xs, ys, ships, traj = F.extract(obs, eta_cache=eta[p])
                 b = time.perf_counter()
                 decisions, rec = nets[p].act_rl(feats, valid, mine)
                 c = time.perf_counter()
-                actions.append(to_action(decisions, obs, ids, ships))
+                actions.append(to_action(decisions, obs, ids, ships, traj=traj))
                 d = time.perf_counter()
                 t_extract += b - a
                 t_net += c - b

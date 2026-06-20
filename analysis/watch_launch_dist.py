@@ -3,7 +3,7 @@
 Run alongside training; it tails two files the trainer writes each iter and
 auto-refreshes a 2x2 window:
   1. ship-fraction histogram   (launch_dist.jsonl -- the SAMPLED launch fractions)
-  2. win rates                 (train 2p/4p + eval vsSL/4p, from train_rl_log.csv)
+  2. win rates                 (train 2p/4p + eval gate-2p/4p, from train_rl_log.csv)
   3. losses                    (policy, value)
   4. objective (mean return)
 
@@ -77,7 +77,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--file", default="launch_dist.jsonl")
     ap.add_argument("--eval-file", default="launch_dist_eval.jsonl")
-    ap.add_argument("--csv", default="train_rl_log.csv")
+    ap.add_argument("--csv", default="reports/train_rl_log.csv")
     ap.add_argument("--interval", type=int, default=10*1000, help="refresh period (ms)")
     args = ap.parse_args()
 
@@ -142,7 +142,7 @@ def main():
         rows = read_rows(args.csv)
         draw_lines(ax_win, rows,
                    [("tr_win2", "train 2p"), ("tr_win4", "train 4p"),
-                    ("vssl", "eval vsSL"), ("win4", "eval 4p")],
+                    ("win2", "eval gate(2p)"), ("win4", "eval 4p")],
                    "win rates", "win rate", baselines=(0.5, 0.25),
                    baseline_color="red")
         ax_win.set_ylim(0, 1)

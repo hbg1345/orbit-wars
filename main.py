@@ -47,7 +47,6 @@ from physics import (
     comet_predictors as _comet_predictors,
     build_world as _build_world,
     aim as _aim,                       # shared aiming/launch geometry (was local here)
-    decisions_to_moves as _decisions_to_moves,
 )
 
 # The policy + its deps. Imported at module top (not lazily) so a missing module
@@ -55,6 +54,9 @@ from physics import (
 import torch
 import features as F
 from model import OrbitNet
+# Decision -> moves now needs the forecast (min-capture sizing), so it lives in
+# forecast.py (which imports physics), not physics.py.
+from forecast import decisions_to_moves as _decisions_to_moves
 
 
 # --------------------------------------------------------------------------- #
@@ -103,11 +105,13 @@ def _neural_moves(obs, net):
     # Keyed by player so P0 and P1 (same process, same module) don't clobber.
     if player not in _canon or step == 0:
         _canon[player] = F.compute_canon(obs)
-    feats, valid_mask, mine_mask, ids, xs, ys, ships = F.extract(obs, canon=_canon[player])
+    feats, valid_mask, mine_mask, ids, xs, ys, ships, traj = F.extract(obs, canon=_canon[player])
     decisions = net.act(feats, valid_mask, mine_mask, greedy=True,
                         gate_threshold=GATE_THRESHOLD)
-    # Aiming + launch conversion is shared geometry (physics.decisions_to_moves).
-    return _decisions_to_moves(obs, decisions, ids, ships, kmax=K_MAX_GLOBAL)
+    # Decisions are (src, tgt, mode); the heuristic sizes + aims each launch.
+    # Reuse extract's forecast (traj) so we don't simulate the board twice.
+    return _decisions_to_moves(obs, decisions, ids, ships, kmax=K_MAX_GLOBAL,
+                               horizon=F.HORIZON, traj=traj)
 
 
 # --------------------------------------------------------------------------- #

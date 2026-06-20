@@ -30,23 +30,16 @@ from model import OrbitNet
 logging.disable(logging.WARNING)
 from kaggle_environments import make
 from main import GATE_THRESHOLD, K_MAX_GLOBAL
-from physics import decisions_to_moves
+from forecast import decisions_to_moves
 
 # PPO & RL Hyperparameters
-GAMMA = 1
+GAMMA = 0.998
 GAE_LAMBDA = 0.97
 LR = 1e-5
 VALUE_COEF = 0.5
 
-# Faster wins are worth more: on a win, add a speed bonus on top of the base +1,
-# linear in how many turns were saved vs WIN_SPEED_TREF (=0 at/after that ref).
-# terminal = base_reward + WIN_SPEED_COEF * max(0, (TREF - turns) / TREF).
-# Only applies to wins; losses keep their env reward.
-WIN_SPEED_COEF = 0.5
-WIN_SPEED_TREF = 500
-
 # Dense lead-margin (PBRS) shaping weight. SHAPE_COEF=0 -> off (pure terminal
-# reward: win/loss + rank/speed). Set > 0 to add the dense lead-margin signal.
+# reward: win/loss only). Set > 0 to add the dense lead-margin signal.
 # Held CONSTANT over the run by default; set SHAPE_DECAY_FRAC > 0 to instead decay
 # it linearly to 0 over that fraction of the run (e.g., 1.0 = whole run).
 SHAPE_COEF = 0.5
@@ -67,6 +60,22 @@ PROD_WEIGHT = 1.0
 # this is intentionally NON-potential: it changes the optimal policy on purpose,
 # to discourage under-committed attacks on neutrals. Set 0 to off.
 ZERO_PENALTY_COEF = 0.05
+
+# Non-potential penalty against "dribbling": charged for EVERY event where one of
+# OUR planets launches at the SAME TARGET on two CONSECUTIVE turns (it sent to
+# target X last turn AND sends to X again this turn) -- splitting one assault into
+# 2+2 instead of one big fleet, which the fleet-speed curve (physics.fleet_speed)
+# rewards combining. Only SAME source + SAME target counts: a planet firing at a
+# DIFFERENT target next turn is legit hub play, not dribbling, and is NOT charged.
+# Like ZERO_PENALTY this is intentionally NON-potential and rides inside the shaped
+# reward, so its EFFECTIVE per-event weight is CONSEC_PENALTY_COEF * shape_coef.
+# NO CAP: every event is charged so the MARGINAL cost of one more dribble is always
+# non-zero (a cap zeroed it after the first event, killing the gradient to reduce).
+# The coef is therefore kept SMALL: at ~40 events/game (observed) and 0.025 it is
+# ~0.5/game effective, scaling DOWN as the policy dribbles less; at a healthy
+# ~2/game it is ~0.025, near-harmless. Raise if dribbling doesn't fall; lower if it
+# starts swamping the +1 win reward (watch the `dribble` count + mean_return).
+CONSEC_PENALTY_COEF = 0.025
 
 # Small entropy bonus to keep the (stochastic) rollout policy from collapsing.
 # Only meaningful because rollouts SAMPLE; eval/deploy stay greedy. With the
@@ -90,24 +99,40 @@ PPO_EPOCHS = 4
 # over-fires. De-bias the gate logit by -log(pos_weight) at sample time so RL
 # fires at the true ~16% rate. MUST match train_sl.GATE_POS_WEIGHT.
 GATE_POS_WEIGHT = 5.4
-GATE_SAMPLE_BIAS = -math.log(GATE_POS_WEIGHT)
+GATE_SAMPLE_BIAS = 0 # -math.log(GATE_POS_WEIGHT)
 
 # Per-iter debug print of reward/value/return/advantage scales (sanity-check the
 # unbounded value head + env reward scale). Set False to silence.
 DEBUG = False
 
-# Evaluation is itself a full set of rollouts (EVAL_GAMES_2P + EVAL_GAMES_4P per
-# iter). Running it every iter roughly doubles rollout cost, so gate it.
-EVAL_EVERY = 15
+# Evaluation is itself a full set of rollouts. Running it every iter roughly
+# doubles rollout cost, so gate it.
+EVAL_EVERY = 16
 
-# Fixed eval yardstick sizes (independent of the training --games split):
-#   2p -> vs the SL teacher (the headline performance metric, so larger sample);
-#   4p -> vs the 3 strongest pool members (diagnostic, smaller sample).
+# THE GATE METRIC: 2p win rate over EVAL_GAMES_2P games vs the MOST RECENT gated
+# snapshot (best_pool[0]) -- "beat your recent self". >~0.5 means the current net
+# beats its last checkpoint, so it is saved as the new snapshot. BOOTSTRAP: with an
+# empty pool there is no snapshot to fight, so the opponent is the fixed SL teacher
+# instead (same game count); once any snapshot exists the opponent is always the
+# latest snapshot. Sizes are fixed (independent of the training --games split).
 EVAL_GAMES_2P = 100
+
+# 4p -> vs the 3 strongest pool members (diagnostic only, smaller sample).
 EVAL_GAMES_4P = 20
 
+# Absolute win-rate a snapshot must beat to be saved. None = use the parity
+# (expected) win rate for the game mix (0.5 in all-2p eval). Since gating is now
+# vs-latest, bumping this above 0.5 (e.g. 0.55) avoids saving near-identical
+# snapshots on tiny, noise-level improvements over the previous self. Overridable
+# per run with --win-gate.
+WIN_GATE = 0.6
+
+# Number of parallel rollout worker processes (fixed, not clamped to the game
+# count). Overridable per run with --workers.
+WORKERS = 6
+
 # [3] 카타스트로픽 망각을 막기 위한 League Pool 확장
-POOL_SIZE = 8
+POOL_SIZE = 1
 N_OPP = 3
 
 # Opponents are sampled UNIFORMLY from the league (all pool snapshots + SL teacher,
@@ -154,6 +179,23 @@ def _load_state(path, map_location="cpu"):
     return ckpt
 
 
+def _load_weights(net, sd, src):
+    """Load `sd` into `net`, failing loud on a real mismatch. strict=False on its
+    own silently tolerates a ZERO-key match (-> net stays at random init, the bug
+    we hit before). Here we still load tolerantly (so an older checkpoint with a
+    slightly different head can transfer), but we ABORT if nothing matched and
+    print a warning for any partial mismatch."""
+    res = net.load_state_dict(sd, strict=False)
+    n_model = len(net.state_dict())
+    if len(res.missing_keys) == n_model:
+        raise RuntimeError(
+            f"loading from {src}: 0 of {n_model} keys matched -- wrong checkpoint "
+            f"format, net would be random. got keys: {list(sd)[:5]}")
+    if res.missing_keys or res.unexpected_keys:
+        print(f"  warning: partial load from {src}: "
+              f"{len(res.missing_keys)} missing, {len(res.unexpected_keys)} unexpected keys")
+
+
 def save_resume(path, net, opt, it, next_snap_id):
     """Persist a FULL resume bundle (not just weights): model + optimizer state so
     Adam momentum survives a restart, plus the iteration counter (the LR/KL/shape
@@ -187,10 +229,11 @@ def _pool_path(i):
     return os.path.join(RL_POOL_DIR, f"snap{i}.pt")
 
 
-# A pool entry is {"id": int, "sd": state_dict, "vssl": float}. `vssl` is the
-# vs-SL 2p eval win rate the snapshot passed gating with -- its "strength", used to
-# pick the strongest opponents for 4p eval. The sd persists as snap<i>.pt; the
-# vssl scores persist alongside in scores.json (id is reassigned by slot on load).
+# A pool entry is {"id": int, "sd": state_dict, "score": float}. `score` is the 2p
+# eval win rate the snapshot passed gating with (vs the previous snapshot, or vs SL
+# for the bootstrap one) -- its "strength", used to pick the strongest opponents for
+# 4p eval. The sd persists as snap<i>.pt; the scores persist alongside in
+# scores.json (id is reassigned by slot on load).
 def _scores_path():
     return os.path.join(RL_POOL_DIR, "scores.json")
 
@@ -214,7 +257,7 @@ def load_pool():
         except Exception as e:
             print(f"  pool snapshot {p} incompatible, skipping ({e})")
             continue
-        dq.append({"id": i, "sd": sd, "vssl": float(scores.get(str(i), 0.5))})
+        dq.append({"id": i, "sd": sd, "score": float(scores.get(str(i), 0.5))})
     return dq
 
 
@@ -223,7 +266,7 @@ def save_pool(best_pool):
     for i, e in enumerate(best_pool):
         torch.save(e["sd"], _pool_path(i))
     with open(_scores_path(), "w", encoding="utf-8") as f:
-        json.dump({str(i): e.get("vssl", 0.5) for i, e in enumerate(best_pool)}, f)
+        json.dump({str(i): e.get("score", 0.5) for i, e in enumerate(best_pool)}, f)
     for i in range(len(best_pool), POOL_SIZE):
         if os.path.exists(_pool_path(i)):
             os.remove(_pool_path(i))
@@ -237,10 +280,13 @@ def parity_winrate(g2, g4):
     return (g2 * 0.5 + g4 * 0.25) / n if n else 0.0
 
 
-def to_action(decisions, obs, ids, ships):
-    # Thin wrapper over the shared aiming/launch geometry (physics), kept for the
+def to_action(decisions, obs, ids, ships, traj=None):
+    # Thin wrapper over the shared aiming/launch geometry (forecast), kept for the
     # (decisions, obs, ...) arg order used by play_game and profile_rollout.
-    return decisions_to_moves(obs, decisions, ids, ships, kmax=K_MAX_GLOBAL)
+    # Decisions are (src, tgt, mode); the heuristic sizes + aims each launch.
+    # `traj` reuses extract's forecast (avoids a redundant simulate per turn).
+    return decisions_to_moves(obs, decisions, ids, ships, kmax=K_MAX_GLOBAL,
+                              horizon=F.HORIZON, traj=traj)
 
 
 def _owner_margin(by_owner, me):
@@ -348,6 +394,9 @@ def play_game(nets, record_seats=None, greedy_seats=None, track_seat=None):
     # keys), computed ONCE from the initial board and reused every turn.
     canons = [F.compute_canon(env.state[p]["observation"]) for p in range(n)]
     fleet_target = [{} for _ in range(n)]     # per seat: live fleet_id -> (target_id, target_prod)
+    prev_launch = [set() for _ in range(n)]   # per seat: (source, target) pairs launched LAST turn
+    consec_charged = [0.0] * n                 # per seat: dribble penalty charged so far (capped)
+    dribble_events = [0] * n                    # per seat: # of consecutive-relaunch events (uncapped count)
     # Recorded seats permanently eliminated (no planet, no fleet). Their death
     # turn is the LAST step we record -- afterwards they take no action and can
     # never revive, so recording the empty no-op tail would only pollute value
@@ -362,7 +411,7 @@ def play_game(nets, record_seats=None, greedy_seats=None, track_seat=None):
         acted = []                    # recorded seats that logged a step this turn
         for p in range(n):
             obs = env.state[p]["observation"]
-            feats, valid, mine, ids, xs, ys, ships = F.extract(obs, eta_cache=eta_caches[p], canon=canons[p])
+            feats, valid, mine, ids, xs, ys, ships, traj = F.extract(obs, eta_cache=eta_caches[p], canon=canons[p])
             if p in keep and p not in dead:
                 decisions, rec = nets[p].act_rl(feats, valid, mine, gate_bias=GATE_SAMPLE_BIAS)
                 data[p].append((feats, valid, mine, rec))
@@ -380,8 +429,8 @@ def play_game(nets, record_seats=None, greedy_seats=None, track_seat=None):
             else:
                 decisions, _ = nets[p].act_rl(feats, valid, mine, gate_bias=GATE_SAMPLE_BIAS)
             if p == track_seat:
-                track_fracs.extend(float(d[2]) for d in decisions)   # (src, tgt, frac)
-            actions.append(to_action(decisions, obs, ids, ships))
+                track_fracs.extend(float(d[2]) for d in decisions)   # (src, tgt, mode)
+            actions.append(to_action(decisions, obs, ids, ships, traj=traj))
         env.step(actions)
         turns += 1
         terminal = env.done
@@ -403,7 +452,17 @@ def play_game(nets, record_seats=None, greedy_seats=None, track_seat=None):
             # scaled by the target's production.
             penalty = _zeroing_penalty(fleet_target[p], launch_tgt.get(p, {}),
                                        obs_seen[p], obs_after, p)
-            shaped[p].append(sval - ZERO_PENALTY_COEF * penalty)
+            # Dribble penalty: count OUR (source, target) pairs launched last turn
+            # AND again this turn (same planet re-hitting the same target), then
+            # remember this turn's pairs for the next step. Charged for EVERY event
+            # (no cap) so the marginal cost of one more dribble stays non-zero.
+            cur_pairs = {(s, tgt) for s, (tgt, _pr) in launch_tgt.get(p, {}).items()}
+            consec = len(cur_pairs & prev_launch[p])
+            prev_launch[p] = cur_pairs
+            dribble = CONSEC_PENALTY_COEF * consec
+            consec_charged[p] += dribble
+            dribble_events[p] += consec
+            shaped[p].append(sval - ZERO_PENALTY_COEF * penalty - dribble)
             if seat_dead:
                 dead.add(p)           # stop recording this seat from next turn on
     rewards = [float(env.state[p]["reward"] or 0.0) for p in range(n)]
@@ -411,7 +470,7 @@ def play_game(nets, record_seats=None, greedy_seats=None, track_seat=None):
     # winner; the env already decides this). Sole winner +1, everyone else -1, in
     # both 2p and 4p (a 4p win is worth the same +1 as a 2p win).
     rank_rewards = _rank_rewards(rewards, n)
-    return data, rewards, shaped, turns, rank_rewards, track_fracs
+    return data, rewards, shaped, turns, rank_rewards, track_fracs, dribble_events, consec_charged
 
 
 _W_LEARNER = None    
@@ -457,32 +516,36 @@ def _rollout_one(payload):
     record_seats = set() if is_eval else {seat}
     # In eval the learner plays greedily and nothing is recorded, so track its
     # launch fractions explicitly to monitor the deployed (mode) distribution.
-    data, rewards, shaped, turns, rank_rewards, track_fracs = play_game(
+    data, rewards, shaped, _turns, rank_rewards, track_fracs, dribble_events, dribble_pen = play_game(
         nets, record_seats=record_seats, greedy_seats=greedy_seats,
         track_seat=(seat if is_eval else None))
     # `won` (sole winner) stays the env-based eval/gating metric -- the headline
     # objective is still the 1st-place win rate.
     won = rewards[seat] > max(rewards[i] for i in range(players) if i != seat)
-    # Training terminal reward = winner-take-all (+1 win / -1 loss, same in 2p & 4p),
-    # plus a speed bonus for an outright win. Eval ignores the reward (uses `won`).
+    # Training terminal reward = winner-take-all (+1 win / -1 loss, same in 2p & 4p).
+    # Eval ignores the reward (uses `won`).
     r_seat = rank_rewards[seat]
-    if won and not is_eval:
-        r_seat += WIN_SPEED_COEF * max(0.0, (WIN_SPEED_TREF - turns) / WIN_SPEED_TREF)
     return (data[seat] if not is_eval else [], r_seat,
-            shaped[seat] if not is_eval else [], won, players, track_fracs)
+            shaped[seat] if not is_eval else [], won, players, track_fracs,
+            dribble_events[seat], dribble_pen[seat])
 
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--iters", type=int, default=2000)
     ap.add_argument("--games", type=int, default=99)
-    ap.add_argument("--workers", type=int, default=min(10, os.cpu_count() or 1))
-    ap.add_argument("--win-gate", type=float, default=None,
-                    help="absolute win-rate gate to save a snapshot; default None "
-                         "= use the parity (expected) win rate for the game mix")
+    ap.add_argument("--workers", type=int, default=WORKERS)
+    ap.add_argument("--win-gate", type=float, default=WIN_GATE,
+                    help="absolute win-rate gate to save a snapshot; default "
+                         f"({WIN_GATE}) = use the parity (expected) win rate for the game mix")
     ap.add_argument("--rebuild", action="store_true",
                     help="start fresh from the SL policy: delete the RL pool dir "
                          f"({RL_POOL_DIR}/) and RL checkpoints ({RL_BEST}, {RL_LAST}) first")
+    ap.add_argument("--pure-rl", action="store_true",
+                    help=f"learn from scratch with NO SL prior: random init, teacher "
+                         f"KL OFF, and a fresh {SL_WEIGHTS} is seeded if missing. "
+                         f"Auto-enabled when {SL_WEIGHTS} is absent. Pass it again on "
+                         f"resume to keep KL off.")
     args = ap.parse_args()
 
     if args.rebuild:
@@ -503,10 +566,20 @@ def main():
     net = OrbitNet().to(device)
     teacher = OrbitNet().to(device)            
     
-    if os.path.exists(SL_WEIGHTS):
-        teacher.load_state_dict(_load_state(SL_WEIGHTS, device), strict=False)
+    # Pure RL: no SL prior. Either requested (--pure-rl) or forced because the SL
+    # weights are absent. We seed a fresh orbit_net.pt ONCE (so inference/eval and
+    # the league baseline have weights), load the teacher from that frozen seed, and
+    # DISABLE teacher KL below -- anchoring KL to a random teacher would silently
+    # corrupt training (the strict=False / random-weights trap).
+    pure_rl = args.pure_rl or not os.path.exists(SL_WEIGHTS)
+    if pure_rl:
+        if not os.path.exists(SL_WEIGHTS):
+            torch.save({"model_state_dict": net.state_dict()}, SL_WEIGHTS)
+            print(f"PURE RL: seeded fresh {SL_WEIGHTS} from random init")
+        _load_weights(teacher, _load_state(SL_WEIGHTS, device), SL_WEIGHTS)
+        print("PURE RL: learning from scratch, teacher KL DISABLED")
     else:
-        print(f"warning: no {SL_WEIGHTS}; teacher is random")
+        _load_weights(teacher, _load_state(SL_WEIGHTS, device), SL_WEIGHTS)
     teacher.eval()
 
     # Resume: if a FULL RL_LAST bundle exists (and not --rebuild), pick up where we
@@ -522,7 +595,8 @@ def main():
             resume = ck
 
     if resume is not None:
-        net.load_state_dict(resume["model_state_dict"], strict=False)
+        # our own resume bundle -> architecture is guaranteed identical, so strict
+        net.load_state_dict(resume["model_state_dict"])
         start_iter = int(resume.get("iter", -1)) + 1
         print(f"resuming from {RL_LAST} at iter {start_iter}  "
               f"(optimizer + RNG restored)  |  teacher from {SL_WEIGHTS}")
@@ -530,7 +604,7 @@ def main():
         init_src = RL_BEST if os.path.exists(RL_BEST) else \
             (RL_LAST if os.path.exists(RL_LAST) else SL_WEIGHTS)
         if os.path.exists(init_src):
-            net.load_state_dict(_load_state(init_src, device), strict=False)
+            _load_weights(net, _load_state(init_src, device), init_src)
             print(f"learner initialised from {init_src}  |  teacher from {SL_WEIGHTS}")
 
     opt = torch.optim.Adam(net.parameters(), lr=LR)
@@ -546,13 +620,14 @@ def main():
         next_snap_id = max(next_snap_id, int(resume.get("next_snap_id", 0)))
 
     # SL teacher as a permanent (never-evicted) league member with id -1, sampled
-    # uniformly exactly like any pool snapshot. vssl=0.5 (parity vs itself) so it
-    # only fills 4p-eval slots when the pool has fewer than 3 stronger members.
-    sl_entry = {"id": -1, "sd": teacher_sd, "vssl": 0.5}
+    # uniformly exactly like any pool snapshot. score=0.5 (parity) so it only fills
+    # 4p-eval slots when the pool has fewer than 3 stronger members.
+    sl_entry = {"id": -1, "sd": teacher_sd, "score": 0.5}
     if best_pool:
         print(f"restored {len(best_pool)} pool snapshot(s) from {RL_POOL_DIR}/")
 
-    workers = max(1, min(args.workers, max(args.games, EVAL_GAMES_2P + EVAL_GAMES_4P)))
+    # Fixed worker count (no longer clamped down to the per-iter game count).
+    workers = max(1, args.workers)
     pool = (ProcessPoolExecutor(max_workers=workers, initializer=_worker_init)
             if workers > 1 else None)
     if pool is not None:
@@ -564,7 +639,8 @@ def main():
     if pool is None:
         _worker_init()
     print(f"rollout workers: {workers}  |  games/iter: {args.games} tr, "
-          f"{EVAL_GAMES_2P}+{EVAL_GAMES_4P} eval (2p+4p)  | pool size: {POOL_SIZE}")
+          f"eval={EVAL_GAMES_2P} 2p (vs-latest, vs-SL when pool empty) "
+          f"+{EVAL_GAMES_4P} 4p  | pool size: {POOL_SIZE}")
 
     def as_ref(e):
         return (e["sd"], e["id"], e["id"] == -1)
@@ -572,20 +648,22 @@ def main():
     def league():
         # Full opponent league: all pool snapshots + the SL teacher, all sampled
         # with equal (uniform) probability.
-        return list(best_pool) + [sl_entry]
+        if best_pool:
+            return list(best_pool) # 풀에 내 모델이 있으면 무조건 내 모델들만 등판
+        return [sl_entry]
 
     def uniform_pick(candidates):
         # Uniformly sample one opponent from the league.
         return as_ref(random.choice(candidates))
 
     def strongest_refs(k=N_OPP):
-        # The k strongest pool members by their recorded vsSL eval score (the win
-        # rate each passed gating with). Padded with the SL teacher when the pool
-        # has fewer than k members. Used to seed the 4-player eval opponents.
-        ranked = sorted(best_pool, key=lambda e: e.get("vssl", 0.0), reverse=True)
+        ranked = sorted(best_pool, key=lambda e: e.get("score", 0.0), reverse=True)
         picks = list(ranked[:k])
         while len(picks) < k:
-            picks.append(sl_entry)
+            if picks:
+                picks.append(picks[0]) # 빈자리를 SL 대신 가장 강한 내 모델의 복제본으로 채움
+            else:
+                picks.append(sl_entry)
         return [as_ref(e) for e in picks]
 
     def opp_trio():
@@ -604,17 +682,24 @@ def main():
         tasks, tags, opp_ids = [], [], []
 
         if is_eval:
-            # Eval is a FIXED yardstick, not uniform self-play, with fixed sample
-            # sizes (EVAL_GAMES_2P / EVAL_GAMES_4P) independent of the training split:
-            #   2p -> always vs the SL teacher (this win rate IS the performance
-            #         metric we report and gate on);
-            #   4p -> vs the 3 strongest pool members (highest recorded vsSL score).
-            n2, n4 = EVAL_GAMES_2P, EVAL_GAMES_4P
-            sl_sd, _sl_id, sl_is_sl = as_ref(sl_entry)
-            for j in range(n2):
-                tasks.append((learner_sd, [sl_sd], [sl_is_sl], j % 2, True))
-                tags.append("sl2p")
-                opp_ids.append(-1)
+            # Eval is a FIXED yardstick, not uniform self-play. The GATE metric is
+            # the 2p win rate vs the most recent gated snapshot (best_pool[0]) --
+            # "beat your recent self". BOOTSTRAP: with an empty pool there is no
+            # snapshot to fight, so the first snapshot is gated vs the SL teacher
+            # instead. 4p (vs the 3 strongest) is diagnostic only.
+            n4 = EVAL_GAMES_4P
+            if best_pool:                            # vs the newest gated snapshot (front of deque)
+                lat_sd, lat_id, lat_is_sl = as_ref(best_pool[0])
+                for j in range(EVAL_GAMES_2P):
+                    tasks.append((learner_sd, [lat_sd], [lat_is_sl], j % 2, True))
+                    tags.append("latest2p")
+                    opp_ids.append(lat_id)
+            else:                                    # bootstrap: gate the first snapshot vs SL
+                sl_sd, _sl_id, sl_is_sl = as_ref(sl_entry)
+                for j in range(EVAL_GAMES_2P):
+                    tasks.append((learner_sd, [sl_sd], [sl_is_sl], j % 2, True))
+                    tags.append("sl2p")
+                    opp_ids.append(-1)
             refs = strongest_refs()                  # same trio for every 4p eval game
             sds = [r[0] for r in refs]
             is_sls = [r[2] for r in refs]
@@ -624,8 +709,8 @@ def main():
                 opp_ids.append(None)
             return tasks, tags, opp_ids
 
-        # Training: uniform self-play opponents, 2:1 (2p:4p) split.
-        n4 = args.games // 3
+        # Training: uniform self-play opponents, 3:1 (2p:4p) split.
+        n4 = args.games // 4
         n2 = args.games - n4
         cands = league()
         for j in range(n2):
@@ -657,15 +742,18 @@ def main():
         open(LAUNCH_DIST_FILE, "w", encoding="utf-8").close()       # fresh per run (live monitor tails it)
         open(LAUNCH_DIST_EVAL_FILE, "w", encoding="utf-8").close()  # eval (greedy) launch distribution
         log.writerow(["iter", "steps", "win", "win2", "win4",
-                  # win = win2 = vssl = vs-SL 2p win rate (the performance metric).
-                  # win4 = win rate in 4p vs the 3 strongest pool members (by vsSL score).
-                  "vssl", "wsl", "gsl",          # win rate vs the fixed SL teacher (== headline)
-                  "vsbest", "wbest", "gbest",    # deprecated (always 0): no best2p phase in eval now
+                  # win = win2 = the GATE 2p win rate: vs the newest snapshot, or vs
+                  # the SL teacher while bootstrapping an empty pool.
+                  # win4 = win rate in 4p vs the 3 strongest pool members.
+                  "vssl", "wsl", "gsl",          # vs SL teacher (populated only when bootstrapping)
+                  "vsbest", "wbest", "gbest",    # vs the newest gated snapshot (the steady-state gate)
                   "policy", "value", "entropy", "kl_div", "tr_win", "tr_win2", "tr_win4",
                   # objective + PPO update-health diagnostics (the policy loss is a
                   # near-0 surrogate, NOT a progress signal -- mean_ret is the actual
                   # RL objective; explained_var/approx_kl/clip_frac diagnose the update).
-                  "mean_ret", "explained_var", "approx_kl", "clip_frac"])
+                  "mean_ret", "explained_var", "approx_kl", "clip_frac",
+                  # dribble = # consecutive-relaunch events this iter; dribble_pen = total penalty.
+                  "dribble", "dribble_pen"])
 
     pbar = tqdm(range(start_iter, args.iters), desc="RL", unit="iter", initial=start_iter, total=args.iters)
     for it in pbar:
@@ -689,14 +777,18 @@ def main():
         if KL_DECAY_FRAC > 0:
             frac = max(0.0, 1.0 - it / max(1, KL_DECAY_FRAC * args.iters))
             kl_coef = KL_COEF_FLOOR + (KL_COEF_START - KL_COEF_FLOOR) * frac
+        if pure_rl:
+            kl_coef = 0.0           # no SL teacher to anchor to (random -> would corrupt)
 
         feats_buf, valid_buf, mine_buf, rec_buf, step_rewards_buf, dones_buf = [], [], [], [], [], []
         tr_w = tr_g = 0
         tr_w2 = tr_g2 = tr_w4 = tr_g4 = 0     # split train win rate by game type
+        tr_dribble_ev = 0; tr_dribble_pen = 0.0   # consecutive-relaunch events / penalty this iter
 
-        for tag, opp_id, (seat_data, reward, shaped, won, players, _ef) in tqdm(rollouts(is_eval=False), total=args.games,
+        for tag, opp_id, (seat_data, reward, shaped, won, players, _ef, d_ev, d_pen) in tqdm(rollouts(is_eval=False), total=args.games,
                                                                            desc="train rollout", unit="game", leave=False):
             tr_g += 1; tr_w += won
+            tr_dribble_ev += d_ev; tr_dribble_pen += d_pen
             if players == 2:
                 tr_g2 += 1; tr_w2 += won
             else:
@@ -716,12 +808,11 @@ def main():
         tr_win4 = tr_w4 / tr_g4 if tr_g4 else 0.0
         roll_s = time.perf_counter() - t_roll
 
-       # Live monitor: histogram this iter's SAMPLED launch fractions (gate-fired
-        # planets only) so watch_launch_dist.py can show the ship-fraction shape.
-        # (it + 1) % EVAL_EVERY == 0 루프 아래 및 위쪽의 _write_launch_dist 부분
+       # Live monitor: histogram this iter's SAMPLED amount MODE (gate-fired
+        # planets only). The 4th record field is now the mode bit (0 = min-capture,
+        # 1 = all-in), so the histogram shows the min/all-in split, not a fraction.
         _write_launch_dist(it + 1,
-                           [(1.0 if f >= OrbitNet.SHIP_BINS - 1 else (f + 0.5) / (OrbitNet.SHIP_BINS - 1))
-                            for rec in rec_buf for (_i, la, _t, f) in rec if la])
+                           [float(f) for rec in rec_buf for (_i, la, _t, f) in rec if la])
 
         # =======================================================
         # 2. PPO 업데이트
@@ -788,7 +879,8 @@ def main():
             owned = sum(len(rec) for rec in rec_buf)
             tqdm.write(
                 f"  [dbg it{it+1}] n={len(step_rewards_buf)} games={tr_g} "
-                f"launch={launches}/{owned} ({100*launches/max(1,owned):.0f}%) | "
+                f"launch={launches}/{owned} ({100*launches/max(1,owned):.0f}%) "
+                f"dribble={tr_dribble_ev} (pen={-tr_dribble_pen:.2f}) | "
                 f"rew {_c(all_step_rewards)} term {_c(term_r)} | "
                 f"val {_c(all_values_old)} ret {_c(all_ret)} adv {_c(adv_arr)}"
             )
@@ -815,8 +907,15 @@ def main():
                 old_logp = all_logp_old[chunk]
                 mb_adv = adv_buf[chunk]
 
-                logp, value, ent, kl = net.evaluate_actions(fb, vb, mb, recs, teacher=teacher,
+                # Pure RL: no teacher -> evaluate_actions skips the teacher forward
+                # and returns 3 values (kl is meaningless without an SL prior).
+                if pure_rl:
+                    logp, value, ent = net.evaluate_actions(fb, vb, mb, recs,
                                                             gate_bias=GATE_SAMPLE_BIAS)
+                    kl = None
+                else:
+                    logp, value, ent, kl = net.evaluate_actions(fb, vb, mb, recs, teacher=teacher,
+                                                                gate_bias=GATE_SAMPLE_BIAS)
 
                 ratio = torch.exp(logp - old_logp)
                 surr1 = ratio * mb_adv
@@ -833,7 +932,8 @@ def main():
 
                 value_loss = ((ret - value) ** 2).mean()
                 entropy = ent.mean()
-                kl_loss = kl.mean()                       # KL(teacher||student) BC anchor
+                # KL(teacher||student) BC anchor; 0 in pure-RL (no teacher).
+                kl_loss = kl.mean() if kl is not None else torch.zeros((), device=device)
                 loss = (policy_loss + VALUE_COEF * value_loss
                         - ENTROPY_COEF * entropy + kl_coef * kl_loss)
 
@@ -861,7 +961,7 @@ def main():
         explained_var = float(1.0 - (all_ret - all_values_old).var() / (all_ret.var() + 1e-8))
         
         # =======================================================
-        # 3. 평가 모드 (단일 패스, 2p 100판 + 4p 20판) -- EVAL_EVERY iter마다만
+        # 3. 평가 모드 (단일 패스, 2p vs-latest + 4p vs-top3) -- EVAL_EVERY iter마다만
         # =======================================================
         do_eval = ((it + 1) % EVAL_EVERY == 0) or (it == args.iters - 1)
         net.eval()
@@ -869,14 +969,17 @@ def main():
 
         if do_eval:
             eval_wsl = eval_gsl = eval_w4 = eval_g4 = 0
+            eval_wbest = eval_gbest = 0                 # vs the newest gated snapshot (2p)
             eval_fracs = []                            # learner's GREEDY launch fractions
 
-            # Fixed-yardstick eval: 2p vs SL (the performance metric) + 4p vs the
-            # 3 strongest pool members. Performance/gating = the vsSL 2p win rate.
-            for tag, _opp_id, (_, _, _, won, players, efracs) in tqdm(rollouts(is_eval=True), total=EVAL_GAMES_2P + EVAL_GAMES_4P,
+            # Fixed-yardstick eval: main 2p (vs the newest snapshot, or vs SL while
+            # bootstrapping) + 4p vs the 3 strongest. GATE = the main 2p win rate.
+            for tag, _opp_id, (_, _, _, won, players, efracs, _dev, _dpen) in tqdm(rollouts(is_eval=True), total=EVAL_GAMES_2P + EVAL_GAMES_4P,
                                                                       desc="eval", unit="game", leave=False):
                 if tag == "sl2p":
                     eval_gsl += 1; eval_wsl += won
+                elif tag == "latest2p":                # vs the most recent gated snapshot
+                    eval_gbest += 1; eval_wbest += won
                 else:                                  # "4p" vs the strongest trio
                     eval_g4 += 1; eval_w4 += won
                 eval_fracs.extend(efracs)
@@ -884,50 +987,56 @@ def main():
             # Greedy (mode) launch distribution at eval, for the live monitor to
             # overlay against the SAMPLED training distribution.
             _write_launch_dist(it + 1, eval_fracs, path=LAUNCH_DIST_EVAL_FILE)
-            wsl, gsl = eval_wsl, eval_gsl
-            win_rate = wsl / max(1, gsl)               # vsSL 2p == headline performance
+            # The GATE metric: vs-latest in steady state, vs-SL while bootstrapping.
+            wmain, gmain = (eval_wbest, eval_gbest) if best_pool else (eval_wsl, eval_gsl)
+            win_rate = wmain / max(1, gmain)           # == the gate metric
             win2 = win_rate
             win4 = eval_w4 / max(1, eval_g4)           # vs the 3 strongest (diagnostic)
-            wbest = gbest = 0                          # best2p no longer part of eval
+            wsl, gsl = eval_wsl, eval_gsl              # populated only when bootstrapping
+            wbest, gbest = eval_wbest, eval_gbest      # vs the newest snapshot
         else:
             win_rate = win2 = win4 = None
             wsl = gsl = 0
             wbest = gbest = 0
+            wmain = gmain = 0
 
         eval_s = time.perf_counter() - t_eval
 
-        sl_str = f"{wsl}/{gsl}" if gsl else "-"
+        main_str = f"{wmain}/{gmain}" if do_eval and gmain else "-"
         win4_str = f"{eval_w4}/{eval_g4}" if do_eval and eval_g4 else "-"
+        main_lbl = "vs-latest" if (do_eval and best_pool) else "vsSL(boot)"
         if do_eval:
-            eval_str = (f"EVAL vsSL={win_rate:.2f} ({sl_str})  "
+            eval_str = (f"EVAL {main_lbl}={win_rate:.2f} ({main_str})  "
                         f"4p-vs-top3={win4:.2f} ({win4_str})")
         else:
             eval_str = "EVAL skipped"
         line = (f"iter {it+1:4d}  steps={len(step_rewards_buf)}  tr_s={roll_s:.0f}s upd={upd_s:.0f}s ev_s={eval_s:.0f}s  "
                 f"{eval_str} [Tr_Win={tr_win_rate:.2f} (2p={tr_win2:.2f} 4p={tr_win4:.2f})]\n"
                 f"      objective(mean_return)={mean_return:+.3f}  loss={loss_val:+.4f}  entropy={e_loss:.3f}  "
-                f"explained_var={explained_var:.2f}\n"
+                f"explained_var={explained_var:.2f}  dribble={tr_dribble_ev} (pen={-tr_dribble_pen:.2f})\n"
                 f"      loss terms: policy={p_loss:+.4f} value={VALUE_COEF*v_loss:+.4f} "
                 f"entropy={-ENTROPY_COEF*e_loss:+.4f} kl={kl_coef*avg_kl:+.4f}  |  "
                 f"raw: value_loss={v_loss:.4f} teacher_kl={avg_kl:.4f} "
                 f"approx_kl={avg_approx_kl:.4f} clip_frac={avg_clip_frac:.2f}")
 
-        # Gate on the vsSL 2p win rate beating 2-player parity (0.5), or --win-gate.
+        # Gate on the main 2p win rate (vs-latest, or vs-SL while bootstrapping)
+        # beating 2-player parity (0.5), or --win-gate.
         gate = (args.win_gate if args.win_gate is not None
-                else parity_winrate(eval_gsl, 0)) if do_eval else None
+                else parity_winrate(gmain, 0)) if do_eval else None
         if do_eval and win_rate > gate:
             torch.save(net.state_dict(), RL_BEST)
             snap_sd = {k: v.detach().cpu() for k, v in net.state_dict().items()}
-            # Record the vsSL score so this snapshot can be ranked as a 4p opponent.
-            best_pool.appendleft({"id": next_snap_id, "sd": snap_sd, "vssl": win_rate})
+            # Record the gate win rate so this snapshot can be ranked as a 4p opponent.
+            best_pool.appendleft({"id": next_snap_id, "sd": snap_sd, "score": win_rate})
             next_snap_id += 1
             save_pool(best_pool)
             line += f"  <- eval>{gate:.2f}, saved {RL_BEST} (+pool {len(best_pool)})"
 
         pbar.set_postfix(eval_win=(f"{win_rate:.2f}" if do_eval else "-"),
-                         vsSL=sl_str, vs4p=(f"{win4:.2f}" if do_eval else "-"), pool=len(best_pool),
+                         gate2p=main_str, vs4p=(f"{win4:.2f}" if do_eval else "-"), pool=len(best_pool),
                          objective=f"{mean_return:+.2f}", loss=f"{loss_val:+.2f}",
-                         entropy=f"{e_loss:.2f}", teacher_kl=f"{avg_kl:.3f}")
+                         entropy=f"{e_loss:.2f}", teacher_kl=f"{avg_kl:.3f}",
+                         dribble=tr_dribble_ev)
         tqdm.write(line)
         log.writerow([it + 1, len(step_rewards_buf),
                       ("" if win_rate is None else f"{win_rate:.4f}"),
@@ -938,7 +1047,8 @@ def main():
                       f"{p_loss:.6f}", f"{v_loss:.6f}", f"{e_loss:.6f}", f"{avg_kl:.6f}",
                       f"{tr_win_rate:.4f}", f"{tr_win2:.4f}", f"{tr_win4:.4f}",
                       f"{mean_return:.6f}", f"{explained_var:.4f}",
-                      f"{avg_approx_kl:.6f}", f"{avg_clip_frac:.4f}"])
+                      f"{avg_approx_kl:.6f}", f"{avg_clip_frac:.4f}",
+                      tr_dribble_ev, f"{tr_dribble_pen:.4f}"])
         log_f.flush()
         save_resume(RL_LAST, net, opt, it, next_snap_id)   # full bundle -> true resume
 

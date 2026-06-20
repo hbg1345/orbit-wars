@@ -41,7 +41,7 @@ max_gp = {0: 0.0, 1: 0.0}
 for s in steps:
     for pl in (0, 1):
         obs = {**s, "player": pl}
-        feats, valid, mine, ids, xs, ys, ships = F.extract(obs, canon=canon[pl])
+        feats, valid, mine, ids, xs, ys, ships, _traj = F.extract(obs, canon=canon[pl])
         with torch.no_grad():
             dbg = net.act_debug(feats, valid, mine, gate_threshold=GATE_THRESHOLD)
         if not dbg:
