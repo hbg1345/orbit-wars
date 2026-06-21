@@ -736,11 +736,18 @@ def main():
 
     # On resume, APPEND to the log/monitor streams instead of truncating them so the
     # run's history (and the live monitor's tail) stays continuous across restarts.
+    # Write the CSV header when the file is fresh OR resuming into an empty/headerless
+    # file -- otherwise a resumed run leaves a headerless CSV and csv.DictReader (the
+    # watch_launch_dist dashboard) misreads the first data row as column names, so the
+    # win/loss/return panels stay blank.
+    need_header = (resume is None or not os.path.exists(RL_LOG_CSV)
+                   or os.path.getsize(RL_LOG_CSV) == 0)
     log_f = open(RL_LOG_CSV, "a" if resume is not None else "w", newline="", encoding="utf-8")
     log = csv.writer(log_f)
     if resume is None:
         open(LAUNCH_DIST_FILE, "w", encoding="utf-8").close()       # fresh per run (live monitor tails it)
         open(LAUNCH_DIST_EVAL_FILE, "w", encoding="utf-8").close()  # eval (greedy) launch distribution
+    if need_header:
         log.writerow(["iter", "steps", "win", "win2", "win4",
                   # win = win2 = the GATE 2p win rate: vs the newest snapshot, or vs
                   # the SL teacher while bootstrapping an empty pool.
@@ -892,10 +899,13 @@ def main():
         sum_approx_kl = sum_clip_frac = 0.0
         nb = 0
 
+        # PPO 업데이트 진행 표시: PPO_EPOCHS * (미니배치 수) 만큼의 옵티마이저 스텝.
+        n_mb = math.ceil(len(step_rewards_buf) / MINIBATCH)
+        upd_bar = tqdm(total=PPO_EPOCHS * n_mb, desc="PPO update", unit="batch", leave=False)
         for epoch in range(PPO_EPOCHS):
             order = list(range(len(step_rewards_buf)))
             random.shuffle(order)
-            
+
             for s in range(0, len(order), MINIBATCH):
                 chunk = order[s:s + MINIBATCH]
                 
@@ -946,7 +956,10 @@ def main():
                 tot_p += policy_loss.item(); tot_v += value_loss.item(); tot_e += entropy.item()
                 tot_k += kl_loss.item(); nb += 1
                 sum_approx_kl += approx_kl.item(); sum_clip_frac += clip_frac.item()
+                upd_bar.update(1)
+                upd_bar.set_postfix(epoch=epoch + 1, loss=f"{loss.item():+.3f}")
 
+        upd_bar.close()
         upd_s = time.perf_counter() - t_upd
         loss_val = tot_loss / nb
         p_loss, v_loss, e_loss = tot_p / nb, tot_v / nb, tot_e / nb
