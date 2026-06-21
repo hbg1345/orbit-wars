@@ -59,7 +59,9 @@ PROD_WEIGHT = 1.0
 # worth more, so failing to take it costs more. Unlike the lead-margin PBRS term
 # this is intentionally NON-potential: it changes the optimal policy on purpose,
 # to discourage under-committed attacks on neutrals. Set 0 to off.
-ZERO_PENALTY_COEF = 0.05
+ZERO_PENALTY_COEF = 0.0   # DISABLED: the "one short" waste penalty is off. The
+                          # event is still counted/logged for diagnostics, but it
+                          # no longer enters the shaped reward (coef 0).
 
 # Non-potential penalty against "dribbling": charged for EVERY event where one of
 # OUR planets launches at the SAME TARGET on two CONSECUTIVE turns (it sent to
@@ -75,7 +77,9 @@ ZERO_PENALTY_COEF = 0.05
 # ~0.5/game effective, scaling DOWN as the policy dribbles less; at a healthy
 # ~2/game it is ~0.025, near-harmless. Raise if dribbling doesn't fall; lower if it
 # starts swamping the +1 win reward (watch the `dribble` count + mean_return).
-CONSEC_PENALTY_COEF = 0.025
+CONSEC_PENALTY_COEF = 0.0   # DISABLED: the dribbling penalty is off. Consecutive
+                            # same-target relaunch events are still counted/logged
+                            # (watch `dribble`), but no longer penalize the reward.
 
 # Small entropy bonus to keep the (stochastic) rollout policy from collapsing.
 # Only meaningful because rollouts SAMPLE; eval/deploy stay greedy. With the

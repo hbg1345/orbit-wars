@@ -28,7 +28,7 @@ from dataset import load_cached
 EPOCHS = 300
 LR = 5e-4
 WEIGHT_DECAY = 5e-5       # L2 regularization (cf. supervised.py)
-SHIP_LOSS_WEIGHT = 0.5    # weight of the amount-MODE BCE (all-in vs min-capture)
+SHIP_LOSS_WEIGHT = 0.001    # weight of the amount-MODE BCE (all-in vs min-capture)
                           # in the SL loss. The exact ship count is no longer
                           # learned (the heuristic derives it), so SL only fits the
                           # binary mode. Tune down if it dominates gate/target.
