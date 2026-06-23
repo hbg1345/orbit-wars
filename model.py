@@ -15,7 +15,7 @@ class OrbitNet(nn.Module):
     # all available), not the network.
     MODE_MIN, MODE_ALL = 0, 1
 
-    def __init__(self, d_model=256, n_heads=4, n_layers=4, dropout=0.0):
+    def __init__(self, d_model=256, n_heads=4, n_layers=6, dropout=0.0):
         super().__init__()
         self.d_model = d_model
 
@@ -188,7 +188,9 @@ class OrbitNet(nn.Module):
 
         if teacher is not None:
             with torch.no_grad():
-                t_target_logits, t_gate_logits, t_h = teacher.forward(feats, valid_mask, mine_mask)
+                # Only the teacher's target logits are used (target-only KL); the
+                # gate/mode teacher outputs are intentionally ignored.
+                t_target_logits, _t_gate_logits, _t_h = teacher.forward(feats, valid_mask, mine_mask)
 
         launched, target, mode = [], [], []
         for rec in records:
@@ -213,12 +215,9 @@ class OrbitNet(nn.Module):
         ent_gate = -(p * torch.log(p + 1e-9) + (1 - p) * torch.log(1 - p + 1e-9))
         logp.index_add_(0, bidx, logp_gate)
         ent.index_add_(0, bidx, ent_gate)
-        if teacher is not None:
-            t_glog = t_gate_logits[bidx, pidx] + gate_bias
-            t_p = torch.sigmoid(t_glog)
-            kl_gate = (t_p * (F.logsigmoid(t_glog) - F.logsigmoid(glog))
-                       + (1 - t_p) * (F.logsigmoid(-t_glog) - F.logsigmoid(-glog)))
-            kl.index_add_(0, bidx, kl_gate)
+        # NOTE: gate KL intentionally OMITTED. SL no longer supervises the gate
+        # (target-only SL), so the teacher's gate is random -- anchoring RL to it
+        # would corrupt the gate. Teacher KL is target-only (see below).
 
         m = launched > 0.5
         if m.any():
@@ -240,17 +239,13 @@ class OrbitNet(nn.Module):
             ent.index_add_(0, tb, ent_mode)
 
             if teacher is not None:
-                # Target KL
+                # Target KL ONLY. SL supervises only the target head, so that is the
+                # one component whose teacher is meaningful. Gate KL and amount-mode
+                # KL are intentionally omitted -- their teacher is random init and
+                # would drag RL's gate/mode toward noise.
                 t_logsm = torch.log_softmax(t_target_logits[tb, tp], dim=-1)
                 kl_tgt = (t_logsm.exp() * (t_logsm - logsm)).sum(-1)
                 kl.index_add_(0, tb, kl_tgt)
-                
-                # Amount-mode KL (binary), teacher -> student
-                t_mlog = teacher.mode_logit(t_h, tb, tp, target[m])
-                t_mp = torch.sigmoid(t_mlog)
-                kl_mode = (t_mp * (F.logsigmoid(t_mlog) - F.logsigmoid(mlog))
-                           + (1 - t_mp) * (F.logsigmoid(-t_mlog) - F.logsigmoid(-mlog)))
-                kl.index_add_(0, tb, kl_mode)
 
         if teacher is not None:
             return logp, value, ent, kl

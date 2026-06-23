@@ -33,10 +33,11 @@ if _HERE not in sys.path:
     sys.path.insert(0, _HERE)
 
 WEIGHTS_PATH = os.path.join(_HERE, "orbit_net.pt")
-# Launch when the gate's sigmoid prob exceeds this. The gate is calibrated to the
-# ~16% launch base rate, so it sits well below 0.5 even for real launches; ~0.25
-# matches the human launch frequency (see inspect_episode.py's threshold sweep).
-GATE_THRESHOLD = 0.65
+# Launch when the gate's sigmoid prob exceeds this. Gate de-bias is OFF everywhere
+# now (SL trains target-only, so the gate carries no pos_weight inflation), so this
+# is a RAW-prob threshold: 0.5 = fire iff launch prob clears 50%, matching the mode
+# of the RL training Bernoulli (no train/deploy drift). Tune around 0.5.
+GATE_THRESHOLD = 0.5
 K_MAX_GLOBAL = 50  # 50틱 근거리 탐색 상한선
 
 # Shared physics/geometry lives in physics.py so the agent and the replay parser
@@ -70,6 +71,10 @@ _net = None
 # features go out-of-distribution) never launches. Keying by player id keeps each
 # perspective's canon separate. See _neural_moves.
 _canon = {}     # player_id -> canon dict
+# Per-player set of planet ids that launched LAST turn, drives the `launched_prev`
+# feature. Keyed by player (same reason as _canon) and reset at step 0 so a new
+# game in the same process doesn't inherit the previous game's launches.
+_prev_src = {}  # player_id -> set of source planet ids launched last turn
 
 
 def _load_state(path):
@@ -105,9 +110,13 @@ def _neural_moves(obs, net):
     # Keyed by player so P0 and P1 (same process, same module) don't clobber.
     if player not in _canon or step == 0:
         _canon[player] = F.compute_canon(obs)
-    feats, valid_mask, mine_mask, ids, xs, ys, ships, traj = F.extract(obs, canon=_canon[player])
+        _prev_src[player] = set()          # new game -> no prior-turn launches
+    feats, valid_mask, mine_mask, ids, xs, ys, ships, traj = F.extract(
+        obs, canon=_canon[player], prev_launch_src=_prev_src.get(player))
     decisions = net.act(feats, valid_mask, mine_mask, greedy=True,
                         gate_threshold=GATE_THRESHOLD)
+    # Remember this turn's launch sources (planet ids) for next turn's launched_prev.
+    _prev_src[player] = {int(ids[s]) for (s, _t, _m) in decisions}
     # Decisions are (src, tgt, mode); the heuristic sizes + aims each launch.
     # Reuse extract's forecast (traj) so we don't simulate the board twice.
     return _decisions_to_moves(obs, decisions, ids, ships, kmax=K_MAX_GLOBAL,

@@ -171,8 +171,15 @@ def parse_episode_data(d, perspective="winner"):
             if not obs.get("planets"):
                 continue
             action = steps[t][p].get("action") or []        # decided on obs[t-1]
+            # The launch that happened ONE turn earlier (action at step t-1, decided
+            # on obs[t-2] and already reflected in this obs[t-1] board): its source
+            # planet ids drive the `launched_prev` feature for this board.
+            prev_action = steps[t - 1][p].get("action") or []
+            prev_launch_src = {int(mv[0]) for mv in prev_action}
 
-            feats, valid, mine, ids, xs, ys, ships, _traj = F.extract(obs, eta_cache=eta_caches[p], canon=canons[p])
+            feats, valid, mine, ids, xs, ys, ships, _traj = F.extract(
+                obs, eta_cache=eta_caches[p], canon=canons[p],
+                prev_launch_src=prev_launch_src)
             N = F.MAX_PLANETS
             id2slot = {int(pid): i for i, pid in enumerate(ids) if pid >= 0}
 

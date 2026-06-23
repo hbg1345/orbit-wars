@@ -57,6 +57,10 @@ FEATURE_NAMES = [
     "dist_center",  # distance from the sun (center) /50
     "is_comet",
     "time_frac",    # global: elapsed fraction of the game (step / MAX_TURNS), in [0,1]
+    "launched_prev",  # 1 if THIS planet launched a fleet on the PREVIOUS turn, else 0.
+                      # Only ever set for planets I own (we don't observe enemy launch
+                      # decisions); lets the policy see its own consecutive-launch
+                      # (dribble) state so the consec/dribble penalty is learnable.
 ]
 STATIC_DIM = len(FEATURE_NAMES)
 
@@ -136,7 +140,7 @@ def compute_canon(obs):
     return {"rot_k": rot_k, "quad": quad, "me": me}
 
 
-def extract(obs, eta_cache=None, canon=None):
+def extract(obs, eta_cache=None, canon=None, prev_launch_src=None):
     """Return (feats, valid_mask, mine_mask, ids, xs, ys, ships, traj).
 
     traj is the forecast.simulate output (per-planet owner/garrison/position over
@@ -148,9 +152,14 @@ def extract(obs, eta_cache=None, canon=None):
     canon: optional per-game canonicalisation from compute_canon(initial_obs) --
     rotates all positions so MY start quadrant is Q1 and re-keys enemy channels
     by CCW quadrant offset. None = no transform (raw frame, backward compatible).
+    prev_launch_src: optional iterable of PLANET IDs that launched a fleet on the
+    PREVIOUS turn (my own launches). Drives the per-planet `launched_prev` feature
+    so the policy can see consecutive-launch state. None/empty -> feature all 0
+    (backward compatible).
     """
     rot_k = canon["rot_k"] if canon else 0
     quad = canon["quad"] if canon else None
+    prev_src = set(prev_launch_src) if prev_launch_src else ()
     player = obs.get("player", 0) if isinstance(obs, dict) else getattr(obs, "player", 0)
     raw_planets = obs.get("planets", []) if isinstance(obs, dict) else getattr(obs, "planets", [])
     comet_ids = set(
@@ -200,6 +209,7 @@ def extract(obs, eta_cache=None, canon=None):
             math.hypot(x - CENTER[0], y - CENTER[1]) / (BOARD / 2.0),  # dist_center (rot-invariant)
             1.0 if pid in comet_ids else 0.0,
             time_frac,                          # global elapsed-time fraction
+            1.0 if int(pid) in prev_src else 0.0,   # launched_prev (mine only; 0 elsewhere)
         ]
 
         # Temporal block: [HORIZON, TEMP_CH] flattened, relative to `player`.

@@ -27,7 +27,7 @@ from dataset import load_cached
 
 EPOCHS = 300
 LR = 5e-4
-WEIGHT_DECAY = 5e-5       # L2 regularization (cf. supervised.py)
+WEIGHT_DECAY = 1e-4       # L2 regularization (cf. supervised.py)
 SHIP_LOSS_WEIGHT = 0.001    # weight of the amount-MODE BCE (all-in vs min-capture)
                           # in the SL loss. The exact ship count is no longer
                           # learned (the heuristic derives it), so SL only fits the
@@ -101,7 +101,11 @@ def compute_losses(net, batch, device):
         z0 = torch.zeros((), device=device)
         tgt_loss = ship_loss = ship_mse = z0
 
-    loss = gate_loss + tgt_loss + SHIP_LOSS_WEIGHT * ship_loss
+    # SL now fits ONLY the target head (where to attack). The gate (when to launch)
+    # and the amount-mode are left for RL to learn from scratch -- so they get NO
+    # SL gradient here. gate_loss / ship_loss are still computed above and returned
+    # for logging/diagnostics, but they no longer enter the optimised loss.
+    loss = tgt_loss
     return loss, gate_loss, tgt_loss, ship_loss, ship_mse
 
 

@@ -84,9 +84,10 @@ ZERO_PENALTY_COEF = 0.0   # DISABLED: the "one short" waste penalty is off. The
 # ~0.5/game effective, scaling DOWN as the policy dribbles less; at a healthy
 # ~2/game it is ~0.025, near-harmless. Raise if dribbling doesn't fall; lower if it
 # starts swamping the +1 win reward (watch the `dribble` count + mean_return).
-CONSEC_PENALTY_COEF = 0.0   # DISABLED: the dribbling penalty is off. Consecutive
-                            # same-target relaunch events are still counted/logged
-                            # (watch `dribble`), but no longer penalize the reward.
+CONSEC_PENALTY_COEF = 0.025  # ENABLED: charge same-source/same-target consecutive
+                             # relaunches. The policy now sees `launched_prev` (this
+                             # planet fired last turn) so the penalty is learnable.
+                             # Effective per-event weight = 0.025 * shape_coef.
 
 # Small entropy bonus to keep the (stochastic) rollout policy from collapsing.
 # Only meaningful because rollouts SAMPLE; eval/deploy stay greedy. With the
@@ -105,19 +106,21 @@ MINIBATCH = 512
 PPO_CLIP = 0.15
 PPO_EPOCHS = 4
 
-# SL trains the gate with pos_weight (class imbalance), which INFLATES its raw
-# launch probability. Greedy (threshold) tolerates that, but Bernoulli sampling
-# over-fires. De-bias the gate logit by -log(pos_weight) at sample time so RL
-# fires at the true ~16% rate. MUST match train_sl.GATE_POS_WEIGHT.
-GATE_POS_WEIGHT = 5.4
+# Gate de-bias is OFF: SL no longer trains the gate (it fits only the target head),
+# so there is no pos_weight inflation to undo. The gate starts at random init and is
+# learned entirely by RL, so we sample/threshold the RAW gate logit (bias = 0).
+# (Kept as a named constant of 1.0 so the -log() stays 0 and the call sites are
+# unchanged.) If SL gate supervision is ever restored, set this back to match
+# train_sl.GATE_POS_WEIGHT.
+GATE_POS_WEIGHT = 1.0
 GATE_SAMPLE_BIAS = -math.log(GATE_POS_WEIGHT)
 
-# Greedy (eval/deploy) gate threshold, applied to the DE-BIASED prob (logit +
-# GATE_SAMPLE_BIAS). 0.5 = fire iff the de-biased launch prob clears 50%, i.e. the
-# MODE of the training Bernoulli -- so greedy plays at the SAME firing rate training
-# samples at (no train/eval drift). Was effectively ~0.65 on the RAW (inflated) prob
-# before, which over-fired ~4-5x vs training. Tune around 0.5 (lower = fire more).
-GREEDY_GATE_THRESHOLD = 0.3
+# Greedy (eval/deploy) gate threshold. With the gate de-bias now OFF (bias = 0,
+# GATE_POS_WEIGHT = 1.0) this applies to the RAW gate prob: 0.5 = fire iff the launch
+# prob clears 50%, i.e. the MODE of the training Bernoulli, so greedy plays at the
+# SAME firing rate training samples at (no train/eval drift). Tune around 0.5
+# (lower = fire more) once the retrained policy's firing rate is observed.
+GREEDY_GATE_THRESHOLD = 0.5
 
 # Per-iter debug print of reward/value/return/advantage scales (sanity-check the
 # unbounded value head + env reward scale). Set False to silence.
@@ -441,6 +444,7 @@ def play_game(nets, record_seats=None, greedy_seats=None, track_seat=None):
     canons = [F.compute_canon(env.state[p]["observation"]) for p in range(n)]
     fleet_target = [{} for _ in range(n)]     # per seat: live fleet_id -> (target_id, target_prod)
     prev_launch = [set() for _ in range(n)]   # per seat: (source, target) pairs launched LAST turn
+    prev_src = [set() for _ in range(n)]      # per seat: source planet ids launched LAST turn (launched_prev feature)
     consec_charged = [0.0] * n                 # per seat: dribble penalty charged so far (capped)
     dribble_events = [0] * n                    # per seat: # of consecutive-relaunch events (uncapped count)
     # Recorded seats permanently eliminated (no planet, no fleet). Their death
@@ -457,7 +461,8 @@ def play_game(nets, record_seats=None, greedy_seats=None, track_seat=None):
         acted = []                    # recorded seats that logged a step this turn
         for p in range(n):
             obs = env.state[p]["observation"]
-            feats, valid, mine, ids, xs, ys, ships, traj = F.extract(obs, eta_cache=eta_caches[p], canon=canons[p])
+            feats, valid, mine, ids, xs, ys, ships, traj = F.extract(
+                obs, eta_cache=eta_caches[p], canon=canons[p], prev_launch_src=prev_src[p])
             if p in keep and p not in dead:
                 decisions, rec = nets[p].act_rl(feats, valid, mine, gate_bias=GATE_SAMPLE_BIAS)
                 data[p].append((feats, valid, mine, rec))
@@ -479,6 +484,9 @@ def play_game(nets, record_seats=None, greedy_seats=None, track_seat=None):
                 decisions, _ = nets[p].act_rl(feats, valid, mine, gate_bias=GATE_SAMPLE_BIAS)
             if p == track_seat:
                 track_fracs.extend(float(d[2]) for d in decisions)   # (src, tgt, mode)
+            # Remember this turn's launch sources (planet ids) for every seat so
+            # next turn's launched_prev feature is populated (incl. opponents/eval).
+            prev_src[p] = {int(ids[s]) for (s, _tg, _md) in decisions}
             actions.append(to_action(decisions, obs, ids, ships, traj=traj))
         env.step(actions)
         turns += 1
