@@ -39,10 +39,14 @@ def serve_one(conn, addr, pool):
             print("client sent shutdown sentinel")
             return
         t0 = time.perf_counter()
-        results = list(pool.map(T._rollout_one, tasks))
-        send_obj(conn, results)
+        # Stream each game's result back as it finishes (pool.map yields in task
+        # order), so the learner sees per-game progress instead of one final dump.
+        done = 0
+        for res in pool.map(T._rollout_one, tasks):
+            send_obj(conn, res)
+            done += 1
         n_iter += 1
-        print(f"  served batch {n_iter}: {len(tasks)} games in "
+        print(f"  served batch {n_iter}: {done} games in "
               f"{time.perf_counter() - t0:.1f}s", flush=True)
 
 

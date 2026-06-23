@@ -43,6 +43,10 @@ def rollout_connect(host, port, retries=60, wait=2.0):
     for _ in range(retries):
         try:
             s = socket.create_connection((host, port), timeout=30)
+            # The 30s timeout was ONLY for establishing the connection. Clear it now:
+            # a rollout batch legitimately takes minutes, so recv must block, not time
+            # out. (Leaving it set made recv() raise TimeoutError after 30s.)
+            s.settimeout(None)
             s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
             print(f"connected to rollout server {host}:{port}")
             return s
@@ -54,6 +58,10 @@ def rollout_connect(host, port, retries=60, wait=2.0):
 
 
 def rollout_remote(sock, tasks):
-    """Send one iter's tasks, block for the results (same order as tasks)."""
-    send_obj(sock, list(tasks))
-    return recv_obj(sock)
+    """Send one iter's tasks, then yield results ONE AT A TIME as the server finishes
+    each game (in task order). Streaming (vs one big recv at the end) lets the learner's
+    tqdm bar advance per game, so you can watch progress on the PC."""
+    tasks = list(tasks)
+    send_obj(sock, tasks)
+    for _ in range(len(tasks)):
+        yield recv_obj(sock)
