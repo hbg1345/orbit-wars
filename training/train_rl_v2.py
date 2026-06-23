@@ -43,7 +43,7 @@ except ImportError:
 # PPO & RL Hyperparameters
 GAMMA = 0.998
 GAE_LAMBDA = 0.97
-LR = 3e-6
+LR = 5e-6
 VALUE_COEF = 0.5
 
 # Dense lead-margin (PBRS) shaping weight. SHAPE_COEF=0 -> off (pure terminal
@@ -78,11 +78,13 @@ ZERO_PENALTY_COEF = 0.0   # DISABLED: the "one short" waste penalty is off. The
                           # no longer enters the shaped reward (coef 0).
 
 # Non-potential penalty against "dribbling": charged for EVERY event where one of
-# OUR planets launches at the SAME TARGET on two CONSECUTIVE turns (it sent to
-# target X last turn AND sends to X again this turn) -- splitting one assault into
-# 2+2 instead of one big fleet, which the fleet-speed curve (physics.fleet_speed)
-# rewards combining. Only SAME source + SAME target counts: a planet firing at a
-# DIFFERENT target next turn is legit hub play, not dribbling, and is NOT charged.
+# OUR planets launches on two CONSECUTIVE turns (it launched last turn AND launches
+# again this turn) -- splitting its output into small per-turn dribs instead of one
+# big fleet, which the fleet-speed curve (physics.fleet_speed) rewards combining.
+# SAME source, ANY target: a planet that fires every turn is dribbling even if it
+# aims at a different target each time, so different-target relaunches ARE charged.
+# This also matches the source-based `launched_prev` feature the policy sees, so the
+# penalty is fully learnable (the policy can predict it from its own launch state).
 # Like ZERO_PENALTY this is intentionally NON-potential and rides inside the shaped
 # reward, so its EFFECTIVE per-event weight is CONSEC_PENALTY_COEF * shape_coef.
 # NO CAP: every event is charged so the MARGINAL cost of one more dribble is always
@@ -105,7 +107,7 @@ ENTROPY_COEF = 1e-4
 # like shape_coef: anchor hard to the SL policy early, then loosen so the late
 # policy can deviate toward better-than-SL play. Floor (not 0) keeps a light
 # tether so it can't drift off into nonsense. Set frac to 0 for a constant START.
-KL_COEF_START = 1e-2
+KL_COEF_START = 0
 KL_COEF_FLOOR = 0
 KL_DECAY_FRAC = 1.0
 MINIBATCH = 512
@@ -139,7 +141,7 @@ DEBUG = False
 # AND at least EVAL_EVERY iters have passed since the last eval (cooldown, so it
 # doesn't eval every iter once tr_win2 stays high). tr_win2 is a noisy proxy for the
 # greedy eval win2, so the trigger is a screen, not the gate itself.
-EVAL_EVERY = 10
+EVAL_EVERY = 15
 TR_WIN2_EVAL_GATE = 0.65
 
 # THE GATE METRIC: 2p win rate over EVAL_GAMES_2P games vs the MOST RECENT gated
@@ -168,7 +170,7 @@ EVAL_GAMES_4P = 20
 # your furthest-back self" floor, not a second improvement bar. Setting it == WIN_GATE
 # would wrongly block legit average-improvement saves that merely sit near parity vs
 # the oldest. (Only used when the anchor runs: avg gate passed & pool has >= 2.)
-OLDEST_GATE = 0.56
+OLDEST_GATE = 0.6
 
 # Absolute win-rate a snapshot must beat to be saved. None = use the parity
 # (expected) win rate for the game mix (0.5 in all-2p eval). Since gating is now
@@ -180,6 +182,11 @@ WIN_GATE = 0.6
 # Number of parallel rollout worker processes (fixed, not clamped to the game
 # count). Overridable per run with --workers.
 WORKERS = 6
+
+# Fraction of each iter's rollouts run on the LOCAL pool (the PC) when a remote actor
+# is attached, so the PC isn't idle during rollout; the rest go to the remote server
+# (the Mac). 0.0 = all remote, 1.0 = all local. Only used in the remote+local branch.
+LOCAL_ROLLOUT_FRAC = 0.35
 
 # [3] 카타스트로픽 망각을 막기 위한 League Pool 확장
 POOL_SIZE = 6
@@ -450,7 +457,7 @@ def play_game(nets, record_seats=None, greedy_seats=None, track_seat=None):
     # keys), computed ONCE from the initial board and reused every turn.
     canons = [F.compute_canon(env.state[p]["observation"]) for p in range(n)]
     fleet_target = [{} for _ in range(n)]     # per seat: live fleet_id -> (target_id, target_prod)
-    prev_launch = [set() for _ in range(n)]   # per seat: (source, target) pairs launched LAST turn
+    prev_launch = [set() for _ in range(n)]   # per seat: SOURCE planet ids launched LAST turn (dribble penalty)
     prev_src = [set() for _ in range(n)]      # per seat: source planet ids launched LAST turn (launched_prev feature)
     consec_charged = [0.0] * n                 # per seat: dribble penalty charged so far (capped)
     dribble_events = [0] * n                    # per seat: # of consecutive-relaunch events (uncapped count)
@@ -516,13 +523,17 @@ def play_game(nets, record_seats=None, greedy_seats=None, track_seat=None):
             # scaled by the target's production.
             penalty = _zeroing_penalty(fleet_target[p], launch_tgt.get(p, {}),
                                        obs_seen[p], obs_after, p)
-            # Dribble penalty: count OUR (source, target) pairs launched last turn
-            # AND again this turn (same planet re-hitting the same target), then
-            # remember this turn's pairs for the next step. Charged for EVERY event
-            # (no cap) so the marginal cost of one more dribble stays non-zero.
-            cur_pairs = {(s, tgt) for s, (tgt, _pr) in launch_tgt.get(p, {}).items()}
-            consec = len(cur_pairs & prev_launch[p])
-            prev_launch[p] = cur_pairs
+            # Dribble penalty: count OUR planets that launched last turn AND again
+            # this turn (same SOURCE, ANY target) -- a planet firing every turn is
+            # dribbling its output out in dribs instead of massing one big combined
+            # fleet (which the fleet-speed curve rewards), whether or not it re-hits
+            # the same target. Target-independent so it matches the source-based
+            # `launched_prev` feature the policy sees -> the penalty stays learnable.
+            # Charged for EVERY event (no cap) so the marginal cost of one more
+            # dribble stays non-zero; then remember this turn's sources for next step.
+            cur_srcs = set(launch_tgt.get(p, {}))
+            consec = len(cur_srcs & prev_launch[p])
+            prev_launch[p] = cur_srcs
             dribble = CONSEC_PENALTY_COEF * consec
             consec_charged[p] += dribble
             dribble_events[p] += consec
@@ -862,7 +873,7 @@ def main():
         if remote_sock is not None and pool is not None:
             # 비동기 처리를 위해 tag, opp_id, task를 미리 하나의 세트로 묶음
             paired_all = list(zip(tags, opp_ids, tasks))
-            split_idx = int(len(paired_all) * 0.3)
+            split_idx = int(len(paired_all) * LOCAL_ROLLOUT_FRAC)
             
             local_paired = paired_all[:split_idx]
             remote_paired = paired_all[split_idx:]
@@ -948,9 +959,6 @@ def main():
                   # dribble = # consecutive-relaunch events this iter; dribble_pen = total penalty.
                   "dribble", "dribble_pen"])
 
-    # Last iter an eval ran, for the EVAL_EVERY cooldown. Start back-dated so the first
-    # tr_win2-triggered eval isn't blocked by the cooldown.
-    last_eval_it = start_iter - EVAL_EVERY
     pbar = tqdm(range(start_iter, args.iters), desc="RL", unit="iter", initial=start_iter, total=args.iters)
     for it in pbar:
         # =======================================================
@@ -1165,14 +1173,13 @@ def main():
         # =======================================================
         # 3. 평가 모드 (단일 패스, 2p vs-latest + 4p vs-top3) -- EVAL_EVERY iter마다만
         # =======================================================
-        # Eval is MANDATORY every EVAL_EVERY iters since the last eval, and ALSO fires
-        # early whenever tr_win2 (cheap per-iter proxy) clears TR_WIN2_EVAL_GATE -- so a
-        # strong iter gets checked/saved without waiting out the cooldown.
-        do_eval = ((it - last_eval_it >= EVAL_EVERY)
+        # Eval fires on every EVAL_EVERY-th iter (ABSOLUTE iter number, so a resume
+        # doesn't force an eval on its first iter the way an "iters since last eval"
+        # counter did), and ALSO early whenever tr_win2 (cheap per-iter proxy) clears
+        # TR_WIN2_EVAL_GATE -- so a strong iter gets checked/saved without waiting.
+        do_eval = (((it + 1) % EVAL_EVERY == 0)
                    or (tr_win2 > TR_WIN2_EVAL_GATE)
                    or (it == args.iters - 1))
-        if do_eval:
-            last_eval_it = it
         net.eval()
         t_eval = time.perf_counter()
 
