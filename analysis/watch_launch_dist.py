@@ -73,6 +73,70 @@ def series(rows, name):
     return xs, ys
 
 
+# Trailing moving-average window (in eval points) for noisy diagnostics like the 4p
+# win rate: each eval is only ~20 games (SE~0.10 at the 0.25 baseline), so a single
+# point is unreadable; averaging the last MA_WINDOW evals gives ~MA_WINDOW*20 games
+# of effective sample (SE shrinks by sqrt(MA_WINDOW)) without any extra eval cost.
+MA_WINDOW = 5
+
+
+def moving_avg(xs, ys, k):
+    """Trailing moving average of ys over the last k points. Returns (xs', ys')
+    aligned to the right edge of each window; empty if fewer than 2 points."""
+    if len(ys) < 2:
+        return [], []
+    k = min(k, len(ys))
+    mx, my = [], []
+    for i in range(k - 1, len(ys)):
+        mx.append(xs[i])
+        my.append(sum(ys[i - k + 1:i + 1]) / k)
+    return mx, my
+
+
+# Save/gate thresholds mirroring train_rl_v2 (main pool-average gate + oldest-anchor
+# guard). Used to detect pool-update points from the log: a snapshot save grows the
+# pool, which changes the opponents -> the "since last update" panels show only the
+# current regime so the trend isn't compressed by older, harder/easier opponents.
+GATE = 0.6
+OLDEST_GATE = 0.56
+
+
+def _row_iter(r):
+    try:
+        return int(r["iter"])
+    except (ValueError, KeyError, TypeError):
+        return None
+
+
+def last_pool_update_iter(rows):
+    """Iter of the most recent snapshot save (= pool update), inferred from the log:
+    an eval row whose pool-average win2 cleared GATE and -- when the oldest anchor
+    ran (vsold present) -- whose vsold cleared OLDEST_GATE (else the forgetting guard
+    blocked the save). None if no save is visible in the log."""
+    last = None
+    for r in rows:
+        w = r.get("win2", "")
+        if w in ("", "None", None):
+            continue
+        try:
+            w = float(w)
+        except ValueError:
+            continue
+        if w <= GATE:
+            continue
+        vo = r.get("vsold", "")
+        if vo not in ("", "None", None):
+            try:
+                if float(vo) <= OLDEST_GATE:
+                    continue                     # blocked by the forgetting guard
+            except ValueError:
+                pass
+        it = _row_iter(r)
+        if it is not None:
+            last = it
+    return last
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--file", default="launch_dist.jsonl")
@@ -81,9 +145,9 @@ def main():
     ap.add_argument("--interval", type=int, default=10*1000, help="refresh period (ms)")
     args = ap.parse_args()
 
-    fig, axes = plt.subplots(2, 2, figsize=(15, 9))
-    ax_hist, ax_win = axes[0]
-    ax_loss, ax_ret = axes[1]
+    fig, axes = plt.subplots(2, 3, figsize=(21, 9))
+    ax_hist, ax_win, ax_ret = axes[0]
+    ax_loss, ax_win_seg, ax_ret_seg = axes[1]
 
     def _bars(rec, color, label):
         """Overlay one normalised ship-fraction histogram (share of launches, so
@@ -120,13 +184,26 @@ def main():
             ax_hist.set_title("ship fraction: train (sampled) vs eval (greedy)")
             ax_hist.legend(loc="upper center", fontsize=8)
 
-    def draw_lines(ax, rows, cols, title, ylabel, baselines=(), baseline_color="gray"):
+    def draw_lines(ax, rows, cols, title, ylabel, baselines=(), baseline_color="gray",
+                   smooth=()):
         ax.clear()
         ax.set_title(title)
         ax.set_xlabel("iter"); ax.set_ylabel(ylabel)
         for col, label in cols:
             xs, ys = series(rows, col)
-            if xs:
+            if not xs:
+                continue
+            if col in smooth:
+                # noisy diagnostic: raw faint + a bold trailing moving average so the
+                # trend is readable despite the small per-eval sample.
+                raw, = ax.plot(xs, ys, marker=".", ms=3, alpha=0.25)
+                mx, my = moving_avg(xs, ys, MA_WINDOW)
+                if mx:
+                    ax.plot(mx, my, color=raw.get_color(), lw=2,
+                            label=f"{label} (MA{MA_WINDOW})")
+                else:
+                    raw.set_label(label)
+            else:
                 ax.plot(xs, ys, marker=".", ms=4, label=label)
         for y in baselines:
             ax.axhline(y, color=baseline_color, ls=":", alpha=0.7)
@@ -137,21 +214,42 @@ def main():
         if ax.get_legend_handles_labels()[0]:
             ax.legend(loc="best", fontsize=8)
 
+    WIN_COLS = [("tr_win2", "train 2p"), ("tr_win4", "train 4p"),
+                ("win2", "eval gate(2p)"), ("win4", "eval 4p")]
+
     def update(_frame):
         draw_hist()
         rows = read_rows(args.csv)
-        draw_lines(ax_win, rows,
-                   [("tr_win2", "train 2p"), ("tr_win4", "train 4p"),
-                    ("win2", "eval gate(2p)"), ("win4", "eval 4p")],
-                   "win rates", "win rate", baselines=(0.5, 0.25),
-                   baseline_color="red")
+
+        # --- full-history panels ---
+        draw_lines(ax_win, rows, WIN_COLS,
+                   "win rates (full)", "win rate", baselines=(0.5, 0.25),
+                   baseline_color="red", smooth={"win4"})
         ax_win.set_ylim(0, 1)
         draw_lines(ax_loss, rows,
                    [("policy", "policy"), ("value", "value")],
                    "losses", "loss", baselines=(0.0,))
         draw_lines(ax_ret, rows,
                    [("mean_ret", "mean return")],
-                   "objective: mean return (should rise)", "return")
+                   "objective: mean return (full)", "return")
+
+        # --- since-last-pool-update panels (opponents change at a save, so this
+        # shows only the current regime -- the trend isn't squashed by old games) ---
+        upd = last_pool_update_iter(rows)
+        seg = rows if upd is None else [r for r in rows
+                                        if (_row_iter(r) is not None and _row_iter(r) >= upd)]
+        suffix = f" (since pool update @{upd})" if upd is not None else " (no pool update yet)"
+        # mark the cut point on the full panels for context
+        if upd is not None:
+            for ax in (ax_win, ax_ret):
+                ax.axvline(upd, color="purple", ls="--", alpha=0.5)
+        draw_lines(ax_win_seg, seg, WIN_COLS,
+                   "win rates" + suffix, "win rate", baselines=(0.5, 0.25),
+                   baseline_color="red", smooth={"win4"})
+        ax_win_seg.set_ylim(0, 1)
+        draw_lines(ax_ret_seg, seg,
+                   [("mean_ret", "mean return")],
+                   "mean return" + suffix, "return")
 
     # Keep a reference (FuncAnimation is GC'd if unbound) -- plt.show() blocks anyway.
     _ani = animation.FuncAnimation(fig, update, interval=args.interval)

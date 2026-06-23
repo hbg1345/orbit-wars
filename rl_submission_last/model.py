@@ -92,7 +92,7 @@ class OrbitNet(nn.Module):
         return self.mode_head(pair).squeeze(-1)
 
     @torch.no_grad()
-    def act(self, feats, valid_mask, mine_mask, greedy=True, gate_threshold=0.5):
+    def act(self, feats, valid_mask, mine_mask, greedy=True, gate_threshold=0.5, gate_bias=0.0):
         dev = next(self.parameters()).device
         feats = torch.as_tensor(feats, dtype=torch.float32, device=dev).unsqueeze(0)
         valid_mask = torch.as_tensor(valid_mask, dtype=torch.bool, device=dev).unsqueeze(0)
@@ -104,7 +104,11 @@ class OrbitNet(nn.Module):
         if mine_idx.numel() == 0:
             return []
 
-        gate_p = torch.sigmoid(gate_logits[0, mine_idx])
+        # gate_bias mirrors act_rl: with the SL pos_weight inflation de-biased away
+        # (gate_bias = -log(pos_weight)), greedy fires iff the DE-BIASED prob clears
+        # the threshold -- i.e. greedy == the MODE of the training sampling policy, so
+        # eval/deploy fire at the same rate training optimises (no train/eval drift).
+        gate_p = torch.sigmoid(gate_logits[0, mine_idx] + gate_bias)
         fire = gate_p >= gate_threshold
         L = int(fire.sum().item())
         if L == 0:

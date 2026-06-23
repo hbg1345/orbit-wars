@@ -10,6 +10,7 @@ _sys.path.insert(0, _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)
 import argparse
 import atexit
 import csv
+import itertools
 import json
 import logging
 import math
@@ -29,13 +30,13 @@ from model import OrbitNet
 
 logging.disable(logging.WARNING)
 from kaggle_environments import make
-from main import GATE_THRESHOLD, K_MAX_GLOBAL
+from main import K_MAX_GLOBAL
 from forecast import decisions_to_moves
 
 # PPO & RL Hyperparameters
 GAMMA = 0.998
 GAE_LAMBDA = 0.97
-LR = 1e-5
+LR = 3e-6
 VALUE_COEF = 0.5
 
 # Dense lead-margin (PBRS) shaping weight. SHAPE_COEF=0 -> off (pure terminal
@@ -45,11 +46,17 @@ VALUE_COEF = 0.5
 SHAPE_COEF = 0.5
 SHAPE_DECAY_FRAC = 0
 # The shaping potential blends two normalized lead terms: ships on the board and
-# owned-planet production (territory). PROD_WEIGHT scales the production term
-# relative to the ship term. Ships catch attrition (wasting a fleet drops your
-# ship lead); production catches captures (a tie that fails to take a planet
-# forfeits the production jump). Set PROD_WEIGHT=0 for the old ship-only potential.
-PROD_WEIGHT = 1.0
+# owned-planet production (territory). SHIP_WEIGHT / PROD_WEIGHT scale each term.
+# Ships catch attrition (wasting a fleet drops your ship lead); production catches
+# captures (a tie that fails to take a planet forfeits the production jump).
+# Set PROD_WEIGHT=0 for the old ship-only potential, or SHIP_WEIGHT=0 for prod-only.
+# SHIP_WEIGHT lowered below 1 to weaken the ship-lead term: a maxed ship lead let
+# the policy HOARD (idle ships kept the potential high) AND made finishing attacks
+# net-negative (combat attrition cut the ship lead for ~0 gain), so it sat on huge
+# idle garrisons while ahead. A smaller ship weight keeps some attrition signal but
+# lets the production (territory) term dominate, nudging it to capture, not hoard.
+SHIP_WEIGHT = 1
+PROD_WEIGHT = 1
 
 # Penalty subtracted from the shaped reward when one of OUR fleets arrives and
 # leaves its TARGET NEUTRAL planet at exactly 0 ships without capturing it -- the
@@ -85,7 +92,7 @@ CONSEC_PENALTY_COEF = 0.0   # DISABLED: the dribbling penalty is off. Consecutiv
 # Only meaningful because rollouts SAMPLE; eval/deploy stay greedy. With the
 # discrete 101-bin Categorical ship head there's no continuous sigma to run away,
 # so a small coef is safe -- start low, raise only if entropy doesn't inflate / win hold.
-ENTROPY_COEF = 1e-3
+ENTROPY_COEF = 1e-4
 # Teacher-KL (behavior-cloning anchor) decays from START to FLOOR over the run,
 # like shape_coef: anchor hard to the SL policy early, then loosen so the late
 # policy can deviate toward better-than-SL play. Floor (not 0) keeps a light
@@ -95,7 +102,7 @@ KL_COEF_FLOOR = 0
 KL_DECAY_FRAC = 1.0
 MINIBATCH = 512
 
-PPO_CLIP = 0.1
+PPO_CLIP = 0.15
 PPO_EPOCHS = 4
 
 # SL trains the gate with pos_weight (class imbalance), which INFLATES its raw
@@ -103,15 +110,27 @@ PPO_EPOCHS = 4
 # over-fires. De-bias the gate logit by -log(pos_weight) at sample time so RL
 # fires at the true ~16% rate. MUST match train_sl.GATE_POS_WEIGHT.
 GATE_POS_WEIGHT = 5.4
-GATE_SAMPLE_BIAS = 0 # -math.log(GATE_POS_WEIGHT)
+GATE_SAMPLE_BIAS = -math.log(GATE_POS_WEIGHT)
+
+# Greedy (eval/deploy) gate threshold, applied to the DE-BIASED prob (logit +
+# GATE_SAMPLE_BIAS). 0.5 = fire iff the de-biased launch prob clears 50%, i.e. the
+# MODE of the training Bernoulli -- so greedy plays at the SAME firing rate training
+# samples at (no train/eval drift). Was effectively ~0.65 on the RAW (inflated) prob
+# before, which over-fired ~4-5x vs training. Tune around 0.5 (lower = fire more).
+GREEDY_GATE_THRESHOLD = 0.3
 
 # Per-iter debug print of reward/value/return/advantage scales (sanity-check the
 # unbounded value head + env reward scale). Set False to silence.
 DEBUG = False
 
-# Evaluation is itself a full set of rollouts. Running it every iter roughly
-# doubles rollout cost, so gate it.
-EVAL_EVERY = 16
+# Evaluation is itself a full set of rollouts (expensive). Instead of a fixed cadence,
+# eval only fires when the cheap per-iter TRAIN 2p win rate (tr_win2) clears
+# TR_WIN2_EVAL_GATE -- i.e. the policy looks strong enough to maybe pass the gate --
+# AND at least EVAL_EVERY iters have passed since the last eval (cooldown, so it
+# doesn't eval every iter once tr_win2 stays high). tr_win2 is a noisy proxy for the
+# greedy eval win2, so the trigger is a screen, not the gate itself.
+EVAL_EVERY = 10
+TR_WIN2_EVAL_GATE = 0.65
 
 # THE GATE METRIC: 2p win rate over EVAL_GAMES_2P games vs the MOST RECENT gated
 # snapshot (best_pool[0]) -- "beat your recent self". >~0.5 means the current net
@@ -121,8 +140,25 @@ EVAL_EVERY = 16
 # latest snapshot. Sizes are fixed (independent of the training --games split).
 EVAL_GAMES_2P = 100
 
+# Anti-forgetting anchor: a SECOND fixed-yardstick block of this many 2p games vs
+# the OLDEST pool snapshot (best_pool[-1], the furthest-back self still retained).
+# The pool-average gate can be satisfied by crushing old selves while regressing vs
+# the latest (masking); this dedicated low-variance (SE~0.05 at 100) anchor adds a
+# HARD floor -- a snapshot must ALSO beat its oldest retained self >= win_gate to be
+# saved, so it can't regress below where it was a full pool-window ago. Only applied
+# when the pool has >= 2 members (with 1, it's identical to the average gate).
+EVAL_GAMES_OLDEST = 100
+
 # 4p -> vs the 3 strongest pool members (diagnostic only, smaller sample).
 EVAL_GAMES_4P = 20
+
+# Anti-forgetting guard threshold: the vs-oldest anchor (above) must clear THIS,
+# kept BELOW the main WIN_GATE. The oldest is the weakest retained self, so a healthy
+# policy beats it well above 0.5 -- this is a loose "don't actually regress against
+# your furthest-back self" floor, not a second improvement bar. Setting it == WIN_GATE
+# would wrongly block legit average-improvement saves that merely sit near parity vs
+# the oldest. (Only used when the anchor runs: avg gate passed & pool has >= 2.)
+OLDEST_GATE = 0.56
 
 # Absolute win-rate a snapshot must beat to be saved. None = use the parity
 # (expected) win rate for the game mix (0.5 in all-2p eval). Since gating is now
@@ -136,7 +172,7 @@ WIN_GATE = 0.6
 WORKERS = 6
 
 # [3] 카타스트로픽 망각을 막기 위한 League Pool 확장
-POOL_SIZE = 1
+POOL_SIZE = 6
 N_OPP = 3
 
 # Opponents are sampled UNIFORMLY from the league (all pool snapshots + SL teacher,
@@ -177,7 +213,10 @@ def _load_state(path, map_location="cpu"):
     unwrapped -- passing that whole dict to load_state_dict(..., strict=False)
     silently matches ZERO keys and leaves the net at random init (the bug that made
     the SL teacher/init random). RL checkpoints are raw state_dicts and pass through."""
-    ckpt = torch.load(path, map_location=map_location)
+    # weights_only=False: these are TRUSTED local files, and some bundles carry numpy
+    # objects (e.g. a resume bundle's RNG state) that PyTorch 2.6's default
+    # weights_only=True refuses to unpickle.
+    ckpt = torch.load(path, map_location=map_location, weights_only=False)
     if isinstance(ckpt, dict) and "model_state_dict" in ckpt:
         return ckpt["model_state_dict"]
     return ckpt
@@ -255,7 +294,10 @@ def load_pool():
         p = _pool_path(i)
         if not os.path.exists(p):
             break
-        sd = torch.load(p, map_location="cpu")
+        # _load_state -> weights_only=False + unwraps a {"model_state_dict": ...}
+        # bundle, so a snapshot copied from a resume bundle (or a wrapped checkpoint)
+        # still loads as a plain pool state_dict.
+        sd = _load_state(p)
         try:
             OrbitNet().load_state_dict(sd)
         except Exception as e:
@@ -324,7 +366,7 @@ def _lead_margin(obs, me):
         prod[o] = prod.get(o, 0.0) + p[6]
     for f in fleets:
         ships[f[1]] = ships.get(f[1], 0.0) + f[6]
-    return _owner_margin(ships, me) + PROD_WEIGHT * _owner_margin(prod, me)
+    return SHIP_WEIGHT * _owner_margin(ships, me) + PROD_WEIGHT * _owner_margin(prod, me)
 
 
 def _is_eliminated(obs, me):
@@ -428,8 +470,11 @@ def play_game(nets, record_seats=None, greedy_seats=None, track_seat=None):
             elif p in dead:
                 decisions = []        # eliminated -> no-op, skip the wasted forward pass
             elif p in greedy_seats:
+                # Aligned greedy: de-bias the gate (same as act_rl) + threshold at the
+                # training Bernoulli mode, so eval/greedy fires like training samples.
                 decisions = nets[p].act(feats, valid, mine, greedy=True,
-                                        gate_threshold=GATE_THRESHOLD)
+                                        gate_threshold=GREEDY_GATE_THRESHOLD,
+                                        gate_bias=GATE_SAMPLE_BIAS)
             else:
                 decisions, _ = nets[p].act_rl(feats, valid, mine, gate_bias=GATE_SAMPLE_BIAS)
             if p == track_seat:
@@ -614,6 +659,12 @@ def main():
     opt = torch.optim.Adam(net.parameters(), lr=LR)
     if resume is not None:
         opt.load_state_dict(resume["optimizer_state_dict"])
+        # load_state_dict restores the SAVED param_groups too (incl. the old lr), so
+        # the lr=LR above is clobbered on resume. Re-apply the current LR constant
+        # (Adam's momentum/variance `state` is kept) so changing LR takes effect when
+        # continuing a run.
+        for g in opt.param_groups:
+            g["lr"] = LR
         if "rng" in resume:
             _restore_rng(resume["rng"])
 
@@ -660,15 +711,21 @@ def main():
         # Uniformly sample one opponent from the league.
         return as_ref(random.choice(candidates))
 
-    def strongest_refs(k=N_OPP):
-        ranked = sorted(best_pool, key=lambda e: e.get("score", 0.0), reverse=True)
-        picks = list(ranked[:k])
-        while len(picks) < k:
-            if picks:
-                picks.append(picks[0]) # 빈자리를 SL 대신 가장 강한 내 모델의 복제본으로 채움
-            else:
-                picks.append(sl_entry)
-        return [as_ref(e) for e in picks]
+    def eval_trios():
+        # Deterministic 4p trios for eval (NOT sampled): enumerate every distinct
+        # 3-combination of the pool so each eval iter faces the SAME fixed set of
+        # opponent mixes -> low-variance, comparable across iters. With a full pool
+        # of 6 that is C(6,3)=20 trios, matching EVAL_GAMES_4P=20 exactly (one game
+        # per distinct trio). Too few members -> top up a single trio with repeats;
+        # empty pool -> the SL teacher trio (bootstrap).
+        members = list(best_pool)
+        if len(members) >= N_OPP:
+            combos = list(itertools.combinations(members, N_OPP))
+        elif members:
+            combos = [tuple((members * N_OPP)[:N_OPP])]
+        else:
+            combos = [(sl_entry,) * N_OPP]
+        return [[as_ref(e) for e in combo] for combo in combos]
 
     def opp_trio():
         # Three opponents for a 4-player game, sampled uniformly from the league.
@@ -682,32 +739,49 @@ def main():
             picks = [random.choice(cands) for _ in range(N_OPP)]
         return [as_ref(e) for e in picks]
 
-    def make_tasks(learner_sd, is_eval=False):
+    def make_tasks(learner_sd, is_eval=False, eval_phase="main"):
         tasks, tags, opp_ids = [], [], []
 
         if is_eval:
-            # Eval is a FIXED yardstick, not uniform self-play. The GATE metric is
-            # the 2p win rate vs the most recent gated snapshot (best_pool[0]) --
-            # "beat your recent self". BOOTSTRAP: with an empty pool there is no
-            # snapshot to fight, so the first snapshot is gated vs the SL teacher
-            # instead. 4p (vs the 3 strongest) is diagnostic only.
+            # Eval is a FIXED yardstick, not uniform self-play, and opponents are
+            # allocated ROUND-ROBIN (NOT sampled) so the metric is low-variance and
+            # comparable across iters. Run in TWO phases (see the eval loop):
+            #   "main"   -- pool-average 2p (the GATE metric) + 4p diagnostic. Always.
+            #   "oldest" -- the dedicated anti-forgetting anchor vs the oldest snapshot.
+            #               ONLY run when the main gate already passed, so the 100-game
+            #               anchor is skipped on the many evals that won't save anyway.
+            if eval_phase == "oldest":
+                old_sd, old_id, old_is_sl = as_ref(list(best_pool)[-1])
+                for j in range(EVAL_GAMES_OLDEST):
+                    tasks.append((learner_sd, [old_sd], [old_is_sl], j % 2, True))
+                    tags.append("oldest2p")
+                    opp_ids.append(old_id)
+                return tasks, tags, opp_ids
+
+            # main phase. The GATE metric is the 2p win rate over EVAL_GAMES_2P games
+            # split EVENLY across ALL pool snapshots -- so losing to an OLDER self
+            # (catastrophic forgetting) drags the gate down, not just "beat your most
+            # recent self". BOOTSTRAP: with an empty pool the first snapshot is gated
+            # vs the SL teacher instead. 4p (distinct pool trios) is diagnostic only.
             n4 = EVAL_GAMES_4P
-            if best_pool:                            # vs the newest gated snapshot (front of deque)
-                lat_sd, lat_id, lat_is_sl = as_ref(best_pool[0])
+            if best_pool:                            # round-robin over the whole pool
+                members = list(best_pool)
                 for j in range(EVAL_GAMES_2P):
-                    tasks.append((learner_sd, [lat_sd], [lat_is_sl], j % 2, True))
-                    tags.append("latest2p")
-                    opp_ids.append(lat_id)
+                    sd_k, id_k, is_sl_k = as_ref(members[j % len(members)])
+                    tasks.append((learner_sd, [sd_k], [is_sl_k], j % 2, True))
+                    tags.append("pool2p")
+                    opp_ids.append(id_k)
             else:                                    # bootstrap: gate the first snapshot vs SL
                 sl_sd, _sl_id, sl_is_sl = as_ref(sl_entry)
                 for j in range(EVAL_GAMES_2P):
                     tasks.append((learner_sd, [sl_sd], [sl_is_sl], j % 2, True))
                     tags.append("sl2p")
                     opp_ids.append(-1)
-            refs = strongest_refs()                  # same trio for every 4p eval game
-            sds = [r[0] for r in refs]
-            is_sls = [r[2] for r in refs]
+            trios = eval_trios()                     # distinct fixed trios, cycled
             for j in range(n4):
+                refs = trios[j % len(trios)]
+                sds = [r[0] for r in refs]
+                is_sls = [r[2] for r in refs]
                 tasks.append((learner_sd, sds, is_sls, j % 4, True))
                 tags.append("4p")
                 opp_ids.append(None)
@@ -731,9 +805,9 @@ def main():
             opp_ids.append(None)                     # ambiguous in 4p -> no stat update
         return tasks, tags, opp_ids
 
-    def rollouts(is_eval=False):
+    def rollouts(is_eval=False, eval_phase="main"):
         learner_sd = {k: v.detach().cpu() for k, v in net.state_dict().items()}
-        tasks, tags, opp_ids = make_tasks(learner_sd, is_eval=is_eval)
+        tasks, tags, opp_ids = make_tasks(learner_sd, is_eval=is_eval, eval_phase=eval_phase)
         results = pool.map(_rollout_one, tasks) if pool is not None \
             else (_rollout_one(tk) for tk in tasks)
         yield from zip(tags, opp_ids, results)
@@ -757,7 +831,8 @@ def main():
                   # the SL teacher while bootstrapping an empty pool.
                   # win4 = win rate in 4p vs the 3 strongest pool members.
                   "vssl", "wsl", "gsl",          # vs SL teacher (populated only when bootstrapping)
-                  "vsbest", "wbest", "gbest",    # vs the newest gated snapshot (the steady-state gate)
+                  "vsbest", "wbest", "gbest",    # round-robin vs the whole pool (the gate metric)
+                  "vsold", "wold", "gold",       # anti-forgetting anchor vs the OLDEST snapshot (only when gate passed & pool>=2)
                   "policy", "value", "entropy", "kl_div", "tr_win", "tr_win2", "tr_win4",
                   # objective + PPO update-health diagnostics (the policy loss is a
                   # near-0 surrogate, NOT a progress signal -- mean_ret is the actual
@@ -766,6 +841,9 @@ def main():
                   # dribble = # consecutive-relaunch events this iter; dribble_pen = total penalty.
                   "dribble", "dribble_pen"])
 
+    # Last iter an eval ran, for the EVAL_EVERY cooldown. Start back-dated so the first
+    # tr_win2-triggered eval isn't blocked by the cooldown.
+    last_eval_it = start_iter - EVAL_EVERY
     pbar = tqdm(range(start_iter, args.iters), desc="RL", unit="iter", initial=start_iter, total=args.iters)
     for it in pbar:
         # =======================================================
@@ -980,50 +1058,81 @@ def main():
         # =======================================================
         # 3. 평가 모드 (단일 패스, 2p vs-latest + 4p vs-top3) -- EVAL_EVERY iter마다만
         # =======================================================
-        do_eval = ((it + 1) % EVAL_EVERY == 0) or (it == args.iters - 1)
+        # Eval is MANDATORY every EVAL_EVERY iters since the last eval, and ALSO fires
+        # early whenever tr_win2 (cheap per-iter proxy) clears TR_WIN2_EVAL_GATE -- so a
+        # strong iter gets checked/saved without waiting out the cooldown.
+        do_eval = ((it - last_eval_it >= EVAL_EVERY)
+                   or (tr_win2 > TR_WIN2_EVAL_GATE)
+                   or (it == args.iters - 1))
+        if do_eval:
+            last_eval_it = it
         net.eval()
         t_eval = time.perf_counter()
 
         if do_eval:
             eval_wsl = eval_gsl = eval_w4 = eval_g4 = 0
-            eval_wbest = eval_gbest = 0                 # vs the newest gated snapshot (2p)
+            eval_wbest = eval_gbest = 0                 # round-robin vs the whole pool (2p)
+            eval_wold = eval_gold = 0                   # dedicated anchor vs the OLDEST snapshot
             eval_fracs = []                            # learner's GREEDY launch fractions
 
-            # Fixed-yardstick eval: main 2p (vs the newest snapshot, or vs SL while
-            # bootstrapping) + 4p vs the 3 strongest. GATE = the main 2p win rate.
-            for tag, _opp_id, (_, _, _, won, players, efracs, _dev, _dpen) in tqdm(rollouts(is_eval=True), total=EVAL_GAMES_2P + EVAL_GAMES_4P,
+            # PHASE 1 (always): pool-average 2p (or vs SL while bootstrapping) + 4p.
+            eval_total = EVAL_GAMES_2P + EVAL_GAMES_4P
+            for tag, _opp_id, (_, _, _, won, players, efracs, _dev, _dpen) in tqdm(rollouts(is_eval=True), total=eval_total,
                                                                       desc="eval", unit="game", leave=False):
                 if tag == "sl2p":
                     eval_gsl += 1; eval_wsl += won
-                elif tag == "latest2p":                # vs the most recent gated snapshot
+                elif tag == "pool2p":                  # round-robin vs the whole pool
                     eval_gbest += 1; eval_wbest += won
-                else:                                  # "4p" vs the strongest trio
+                else:                                  # "4p" vs distinct trios
                     eval_g4 += 1; eval_w4 += won
                 eval_fracs.extend(efracs)
 
-            # Greedy (mode) launch distribution at eval, for the live monitor to
-            # overlay against the SAMPLED training distribution.
-            _write_launch_dist(it + 1, eval_fracs, path=LAUNCH_DIST_EVAL_FILE)
-            # The GATE metric: vs-latest in steady state, vs-SL while bootstrapping.
+            # The GATE metric: pool-average in steady state, vs-SL while bootstrapping.
             wmain, gmain = (eval_wbest, eval_gbest) if best_pool else (eval_wsl, eval_gsl)
             win_rate = wmain / max(1, gmain)           # == the gate metric
             win2 = win_rate
             win4 = eval_w4 / max(1, eval_g4)           # vs the 3 strongest (diagnostic)
             wsl, gsl = eval_wsl, eval_gsl              # populated only when bootstrapping
-            wbest, gbest = eval_wbest, eval_gbest      # vs the newest snapshot
+            wbest, gbest = eval_wbest, eval_gbest      # round-robin vs the whole pool
+
+            # Gate threshold (needed now to decide if the oldest anchor is worth running).
+            gate = (args.win_gate if args.win_gate is not None
+                    else parity_winrate(gmain, 0))
+
+            # PHASE 2 (conditional): the anti-forgetting anchor vs the oldest snapshot
+            # runs ONLY when the pool-average gate already passed AND the pool has >= 2
+            # members -- the many evals that fail the average gate won't save regardless,
+            # so the 100-game anchor is skipped there.
+            if win_rate > gate and len(best_pool) >= 2:
+                for tag, _opp_id, (_, _, _, won, players, efracs, _dev, _dpen) in tqdm(
+                        rollouts(is_eval=True, eval_phase="oldest"), total=EVAL_GAMES_OLDEST,
+                        desc="eval-oldest", unit="game", leave=False):
+                    eval_gold += 1; eval_wold += won
+                    eval_fracs.extend(efracs)
+            wold, gold = eval_wold, eval_gold          # vs the oldest snapshot (anchor)
+            win_old = (wold / gold) if gold else None  # None when anchor not run
+
+            # Greedy (mode) launch distribution at eval, for the live monitor to
+            # overlay against the SAMPLED training distribution.
+            _write_launch_dist(it + 1, eval_fracs, path=LAUNCH_DIST_EVAL_FILE)
         else:
             win_rate = win2 = win4 = None
             wsl = gsl = 0
             wbest = gbest = 0
+            wold = gold = 0
+            win_old = None
             wmain = gmain = 0
+            gate = None
 
         eval_s = time.perf_counter() - t_eval
 
         main_str = f"{wmain}/{gmain}" if do_eval and gmain else "-"
         win4_str = f"{eval_w4}/{eval_g4}" if do_eval and eval_g4 else "-"
-        main_lbl = "vs-latest" if (do_eval and best_pool) else "vsSL(boot)"
+        main_lbl = "vs-pool" if (do_eval and best_pool) else "vsSL(boot)"
+        old_str = f"{wold}/{gold}" if do_eval and gold else "-"
         if do_eval:
-            eval_str = (f"EVAL {main_lbl}={win_rate:.2f} ({main_str})  "
+            anchor_str = f"  vs-oldest={win_old:.2f} ({old_str})" if win_old is not None else ""
+            eval_str = (f"EVAL {main_lbl}={win_rate:.2f} ({main_str}){anchor_str}  "
                         f"4p-vs-top3={win4:.2f} ({win4_str})")
         else:
             eval_str = "EVAL skipped"
@@ -1036,11 +1145,12 @@ def main():
                 f"raw: value_loss={v_loss:.4f} teacher_kl={avg_kl:.4f} "
                 f"approx_kl={avg_approx_kl:.4f} clip_frac={avg_clip_frac:.2f}")
 
-        # Gate on the main 2p win rate (vs-latest, or vs-SL while bootstrapping)
-        # beating 2-player parity (0.5), or --win-gate.
-        gate = (args.win_gate if args.win_gate is not None
-                else parity_winrate(gmain, 0)) if do_eval else None
-        if do_eval and win_rate > gate:
+        # Gate on the pool-average 2p win rate (computed above with the eval). ANTI-
+        # FORGETTING: when the vs-oldest anchor ran (gate passed & >=2 members), the
+        # snapshot must ALSO beat the oldest retained self by the same gate -- so it
+        # can't regress below a full pool-window ago.
+        anchor_ok = (win_old is None) or (win_old > OLDEST_GATE)
+        if do_eval and win_rate > gate and anchor_ok:
             torch.save(net.state_dict(), RL_BEST)
             snap_sd = {k: v.detach().cpu() for k, v in net.state_dict().items()}
             # Record the gate win rate so this snapshot can be ranked as a 4p opponent.
@@ -1048,6 +1158,8 @@ def main():
             next_snap_id += 1
             save_pool(best_pool)
             line += f"  <- eval>{gate:.2f}, saved {RL_BEST} (+pool {len(best_pool)})"
+        elif do_eval and win_rate > gate and not anchor_ok:
+            line += f"  <- avg>{gate:.2f} but vs-oldest={win_old:.2f}<={OLDEST_GATE:.2f}, NOT saved (forgetting guard)"
 
         pbar.set_postfix(eval_win=(f"{win_rate:.2f}" if do_eval else "-"),
                          gate2p=main_str, vs4p=(f"{win4:.2f}" if do_eval else "-"), pool=len(best_pool),
@@ -1061,6 +1173,7 @@ def main():
                       ("" if win4 is None else f"{win4:.4f}"),
                       (f"{wsl/gsl:.4f}" if gsl else ""), wsl, gsl,
                       (f"{wbest/gbest:.4f}" if gbest else ""), wbest, gbest,
+                      (f"{wold/gold:.4f}" if gold else ""), wold, gold,
                       f"{p_loss:.6f}", f"{v_loss:.6f}", f"{e_loss:.6f}", f"{avg_kl:.6f}",
                       f"{tr_win_rate:.4f}", f"{tr_win2:.4f}", f"{tr_win4:.4f}",
                       f"{mean_return:.6f}", f"{explained_var:.4f}",

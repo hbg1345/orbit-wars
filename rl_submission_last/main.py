@@ -5,6 +5,7 @@ Uses the greedy policy exactly matching the rigorous Evaluation phase
 of our RL league training. Aiming/collision geometry is shared via forecast.py
 (decisions_to_moves), which is bundled alongside this agent.
 """
+import math
 import os
 import sys
 
@@ -27,7 +28,13 @@ else:
 if _HERE not in sys.path:
     sys.path.insert(0, _HERE)
 
-GATE_THRESHOLD = 0.5
+# Aligned greedy gate (matches train_rl_v2 eval): de-bias the SL pos_weight inflation
+# (GATE_SAMPLE_BIAS = -log(pos_weight)) and fire iff the de-biased prob clears 0.5,
+# i.e. the mode of the training Bernoulli -> deploy fires at the same rate training
+# optimised, not the ~4-5x over-firing of the old raw-0.65 threshold.
+GATE_POS_WEIGHT = 5.4
+GATE_SAMPLE_BIAS = -math.log(GATE_POS_WEIGHT)
+GATE_THRESHOLD = 0.4
 K_MAX_GLOBAL = 50
 
 # [수정 1] physics가 아닌 forecast에서 임포트하도록 변경
@@ -65,7 +72,8 @@ def _moves(obs):
     # [수정 4] extract에서 반환되는 traj 변수 추가 및 _canon을 플레이어별로 접근
     feats, valid, mine, ids, xs, ys, ships, traj = F.extract(obs, canon=_canon[player])
     
-    decisions = _net.act(feats, valid, mine, greedy=True, gate_threshold=GATE_THRESHOLD)
+    decisions = _net.act(feats, valid, mine, greedy=True, gate_threshold=GATE_THRESHOLD,
+                         gate_bias=GATE_SAMPLE_BIAS)
     
     # [수정 5] decisions_to_moves에 누락되었던 horizon과 traj 인자 추가 전달
     return _decisions_to_moves(obs, decisions, ids, ships, kmax=K_MAX_GLOBAL, 
