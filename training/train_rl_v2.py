@@ -31,7 +31,10 @@ from model import OrbitNet
 
 logging.disable(logging.WARNING)
 from kaggle_environments import make
-from main import K_MAX_GLOBAL
+# K_MAX_GLOBAL is defined locally (not imported from main) so this trainer doesn't
+# pull in main.py's import-time side effects (it loads an agent + weights). 50 matches
+# main_rl.py / the submission agents.
+K_MAX_GLOBAL = 50
 from forecast import decisions_to_moves
 
 _REMOTE_SYNCED_IDS = set()
@@ -93,10 +96,11 @@ ZERO_PENALTY_COEF = 0.0   # DISABLED: the "one short" waste penalty is off. The
 # ~0.5/game effective, scaling DOWN as the policy dribbles less; at a healthy
 # ~2/game it is ~0.025, near-harmless. Raise if dribbling doesn't fall; lower if it
 # starts swamping the +1 win reward (watch the `dribble` count + mean_return).
-CONSEC_PENALTY_COEF = 0.025  # ENABLED: charge same-source/same-target consecutive
-                             # relaunches. The policy now sees `launched_prev` (this
-                             # planet fired last turn) so the penalty is learnable.
-                             # Effective per-event weight = 0.025 * shape_coef.
+CONSEC_PENALTY_COEF = 0.0   # DISABLED for the latest_submission model: its features
+                            # have NO `launched_prev` channel, so the policy can't see
+                            # its own consecutive-launch state and the dribble penalty
+                            # would be an unlearnable (gradient-free) reward bias. The
+                            # events are still counted/logged, just not charged.
 
 # Small entropy bonus to keep the (stochastic) rollout policy from collapsing.
 # Only meaningful because rollouts SAMPLE; eval/deploy stay greedy. With the
@@ -476,7 +480,7 @@ def play_game(nets, record_seats=None, greedy_seats=None, track_seat=None):
         for p in range(n):
             obs = env.state[p]["observation"]
             feats, valid, mine, ids, xs, ys, ships, traj = F.extract(
-                obs, eta_cache=eta_caches[p], canon=canons[p], prev_launch_src=prev_src[p])
+                obs, eta_cache=eta_caches[p], canon=canons[p])
             if p in keep and p not in dead:
                 decisions, rec = nets[p].act_rl(feats, valid, mine, gate_bias=GATE_SAMPLE_BIAS)
                 data[p].append((feats, valid, mine, rec))
@@ -492,8 +496,7 @@ def play_game(nets, record_seats=None, greedy_seats=None, track_seat=None):
                 # Aligned greedy: de-bias the gate (same as act_rl) + threshold at the
                 # training Bernoulli mode, so eval/greedy fires like training samples.
                 decisions = nets[p].act(feats, valid, mine, greedy=True,
-                                        gate_threshold=GREEDY_GATE_THRESHOLD,
-                                        gate_bias=GATE_SAMPLE_BIAS)
+                                        gate_threshold=GREEDY_GATE_THRESHOLD)
             else:
                 decisions, _ = nets[p].act_rl(feats, valid, mine, gate_bias=GATE_SAMPLE_BIAS)
             if p == track_seat:

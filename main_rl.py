@@ -5,7 +5,6 @@ Uses the greedy policy exactly matching the rigorous Evaluation phase
 of our RL league training. Aiming/collision geometry is shared via forecast.py
 (decisions_to_moves), which is bundled alongside this agent.
 """
-import math
 import os
 import sys
 
@@ -28,14 +27,7 @@ else:
 if _HERE not in sys.path:
     sys.path.insert(0, _HERE)
 
-# Aligned greedy gate (matches train_rl_v2 eval). The gate de-bias is now OFF: SL no
-# longer supervises the gate (target-only SL), so there is no pos_weight inflation to
-# undo -- the gate is learned from scratch by RL. We fire iff the RAW gate prob clears
-# 0.5 (GATE_POS_WEIGHT = 1.0 -> bias = 0), the mode of the training Bernoulli, so
-# deploy fires at the same rate training optimised. MUST match train_rl_v2.
-GATE_POS_WEIGHT = 1.0
-GATE_SAMPLE_BIAS = -math.log(GATE_POS_WEIGHT)
-GATE_THRESHOLD = 0.5
+GATE_THRESHOLD = 0.65
 K_MAX_GLOBAL = 50
 
 # [수정 1] physics가 아닌 forecast에서 임포트하도록 변경
@@ -60,28 +52,20 @@ _net.to(_device)
 _net.eval()
 
 # [수정 3] 캐글 환경에서 두 에이전트가 같은 변수를 덮어쓰지 않도록 dict 형태로 변경
-_canon = {}
-# Per-player set of planet ids launched LAST turn -> drives the launched_prev feature.
-# Reset at step 0 so a new game doesn't inherit the previous game's launches.
-_prev_src = {}
+_canon = {}   
 
 def _moves(obs):
     global _canon
     step = obs.get("step", 0) if isinstance(obs, dict) else getattr(obs, "step", 0)
     player = obs.get("player", 0) if isinstance(obs, dict) else getattr(obs, "player", 0)
-
+    
     if player not in _canon or step == 0:          # 매 에피소드 시작 시 한 번만 계산
         _canon[player] = F.compute_canon(obs)
-        _prev_src[player] = set()                  # new game -> no prior-turn launches
-
+        
     # [수정 4] extract에서 반환되는 traj 변수 추가 및 _canon을 플레이어별로 접근
-    feats, valid, mine, ids, xs, ys, ships, traj = F.extract(
-        obs, canon=_canon[player], prev_launch_src=_prev_src.get(player))
-
-    decisions = _net.act(feats, valid, mine, greedy=True, gate_threshold=GATE_THRESHOLD,
-                         gate_bias=GATE_SAMPLE_BIAS)
-    # Remember this turn's launch sources for next turn's launched_prev feature.
-    _prev_src[player] = {int(ids[s]) for (s, _t, _m) in decisions}
+    feats, valid, mine, ids, xs, ys, ships, traj = F.extract(obs, canon=_canon[player])
+    
+    decisions = _net.act(feats, valid, mine, greedy=True, gate_threshold=GATE_THRESHOLD)
     
     # [수정 5] decisions_to_moves에 누락되었던 horizon과 traj 인자 추가 전달
     return _decisions_to_moves(obs, decisions, ids, ships, kmax=K_MAX_GLOBAL, 
