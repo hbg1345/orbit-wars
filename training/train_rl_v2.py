@@ -33,6 +33,11 @@ from kaggle_environments import make
 from main import K_MAX_GLOBAL
 from forecast import decisions_to_moves
 
+try:
+    from rollout_net import rollout_connect, rollout_remote
+except ImportError:                       # imported package-style (training.train_rl_v2)
+    from training.rollout_net import rollout_connect, rollout_remote
+
 # PPO & RL Hyperparameters
 GAMMA = 0.998
 GAE_LAMBDA = 0.97
@@ -592,6 +597,10 @@ def main():
     ap.add_argument("--iters", type=int, default=2000)
     ap.add_argument("--games", type=int, default=99)
     ap.add_argument("--workers", type=int, default=WORKERS)
+    ap.add_argument("--remote", default=None, metavar="HOST:PORT",
+                    help="run rollouts on a remote rollout_server.py (the Mac) at "
+                         "HOST:PORT instead of a local worker pool. The local pool is "
+                         "not created; only the PPO update runs here.")
     ap.add_argument("--win-gate", type=float, default=WIN_GATE,
                     help="absolute win-rate gate to save a snapshot; default "
                          f"({WIN_GATE}) = use the parity (expected) win rate for the game mix")
@@ -689,18 +698,30 @@ def main():
     if best_pool:
         print(f"restored {len(best_pool)} pool snapshot(s) from {RL_POOL_DIR}/")
 
+    # Remote rollouts: ship tasks to a rollout_server.py (the Mac) and get the
+    # trajectories back. No local worker pool, and we do NOT call _worker_init in this
+    # process (games never run here -- only the PPO update does).
+    remote_sock = None
+    if args.remote:
+        host, port = args.remote.rsplit(":", 1)
+        remote_sock = rollout_connect(host, int(port))
+        atexit.register(lambda: remote_sock.close())
+
     # Fixed worker count (no longer clamped down to the per-iter game count).
     workers = max(1, args.workers)
     pool = (ProcessPoolExecutor(max_workers=workers, initializer=_worker_init)
-            if workers > 1 else None)
+            if (remote_sock is None and workers > 1) else None)
     if pool is not None:
         # Ensure workers are torn down on ANY graceful exit (normal end, Ctrl-C,
         # unhandled exception) -- not just the explicit shutdown at the end, which
         # is skipped on interrupt and leaks orphaned worker processes. cancel_futures
         # drops queued rollouts so cleanup only waits on the few in-flight games.
         atexit.register(pool.shutdown, cancel_futures=True)
-    if pool is None:
+    if pool is None and remote_sock is None:
         _worker_init()
+    if remote_sock is not None:
+        print(f"rollouts: REMOTE -> {args.remote}  |  games/iter: {args.games} tr, "
+              f"eval={EVAL_GAMES_2P} 2p +{EVAL_GAMES_4P} 4p  | pool size: {POOL_SIZE}")
     print(f"rollout workers: {workers}  |  games/iter: {args.games} tr, "
           f"eval={EVAL_GAMES_2P} 2p (vs-latest, vs-SL when pool empty) "
           f"+{EVAL_GAMES_4P} 4p  | pool size: {POOL_SIZE}")
@@ -816,8 +837,12 @@ def main():
     def rollouts(is_eval=False, eval_phase="main"):
         learner_sd = {k: v.detach().cpu() for k, v in net.state_dict().items()}
         tasks, tags, opp_ids = make_tasks(learner_sd, is_eval=is_eval, eval_phase=eval_phase)
-        results = pool.map(_rollout_one, tasks) if pool is not None \
-            else (_rollout_one(tk) for tk in tasks)
+        if remote_sock is not None:
+            results = rollout_remote(remote_sock, tasks)   # runs on the Mac, returns in order
+        elif pool is not None:
+            results = pool.map(_rollout_one, tasks)
+        else:
+            results = (_rollout_one(tk) for tk in tasks)
         yield from zip(tags, opp_ids, results)
 
     # On resume, APPEND to the log/monitor streams instead of truncating them so the
