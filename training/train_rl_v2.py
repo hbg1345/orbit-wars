@@ -6,7 +6,8 @@ Features GAE, Teacher KL Regularization, Mixed Opponent Execution, and single-pa
 
 import os as _os, sys as _sys  # noqa: E402  (repo-root shim, added by layout move)
 _sys.path.insert(0, _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
-
+import threading
+import queue
 import argparse
 import atexit
 import csv
@@ -33,11 +34,12 @@ from kaggle_environments import make
 from main import K_MAX_GLOBAL
 from forecast import decisions_to_moves
 
+_REMOTE_SYNCED_IDS = set()
+# 기존 코드 (line 42 부근)
 try:
-    from rollout_net import rollout_connect, rollout_remote
-except ImportError:                       # imported package-style (training.train_rl_v2)
-    from training.rollout_net import rollout_connect, rollout_remote
-
+    from rollout_net import rollout_connect, rollout_remote, send_obj, recv_obj
+except ImportError:
+    from training.rollout_net import rollout_connect, rollout_remote, send_obj, recv_obj
 # PPO & RL Hyperparameters
 GAMMA = 0.998
 GAE_LAMBDA = 0.97
@@ -550,7 +552,7 @@ def _worker_init():
 
 
 def _rollout_one(payload):
-    learner_sd, opp_sds, opp_is_sl, seat, is_eval = payload
+    learner_sd, opp_sds, opp_ids, opp_is_sl, seat, is_eval = payload
     _W_LEARNER.load_state_dict(learner_sd)
     while len(_W_OPP) < len(opp_sds):
         n = OrbitNet(); n.eval(); _W_OPP.append(n)
@@ -709,8 +711,12 @@ def main():
 
     # Fixed worker count (no longer clamped down to the per-iter game count).
     workers = max(1, args.workers)
+    # pool = (ProcessPoolExecutor(max_workers=workers, initializer=_worker_init)
+    #         if (remote_sock is None and workers > 1) else None)
+
+    # 수정 후
     pool = (ProcessPoolExecutor(max_workers=workers, initializer=_worker_init)
-            if (remote_sock is None and workers > 1) else None)
+            if workers > 1 else None)
     if pool is not None:
         # Ensure workers are torn down on ANY graceful exit (normal end, Ctrl-C,
         # unhandled exception) -- not just the explicit shutdown at the end, which
@@ -772,78 +778,146 @@ def main():
         tasks, tags, opp_ids = [], [], []
 
         if is_eval:
-            # Eval is a FIXED yardstick, not uniform self-play, and opponents are
-            # allocated ROUND-ROBIN (NOT sampled) so the metric is low-variance and
-            # comparable across iters. Run in TWO phases (see the eval loop):
-            #   "main"   -- pool-average 2p (the GATE metric) + 4p diagnostic. Always.
-            #   "oldest" -- the dedicated anti-forgetting anchor vs the oldest snapshot.
-            #               ONLY run when the main gate already passed, so the 100-game
-            #               anchor is skipped on the many evals that won't save anyway.
             if eval_phase == "oldest":
                 old_sd, old_id, old_is_sl = as_ref(list(best_pool)[-1])
                 for j in range(EVAL_GAMES_OLDEST):
-                    tasks.append((learner_sd, [old_sd], [old_is_sl], j % 2, True))
+                    # 👉 수정됨: [old_id] 끼워넣기
+                    tasks.append((learner_sd, [old_sd], [old_id], [old_is_sl], j % 2, True))
                     tags.append("oldest2p")
                     opp_ids.append(old_id)
                 return tasks, tags, opp_ids
 
-            # main phase. The GATE metric is the 2p win rate over EVAL_GAMES_2P games
-            # split EVENLY across ALL pool snapshots -- so losing to an OLDER self
-            # (catastrophic forgetting) drags the gate down, not just "beat your most
-            # recent self". BOOTSTRAP: with an empty pool the first snapshot is gated
-            # vs the SL teacher instead. 4p (distinct pool trios) is diagnostic only.
             n4 = EVAL_GAMES_4P
-            if best_pool:                            # round-robin over the whole pool
+            if best_pool:                            
                 members = list(best_pool)
                 for j in range(EVAL_GAMES_2P):
                     sd_k, id_k, is_sl_k = as_ref(members[j % len(members)])
-                    tasks.append((learner_sd, [sd_k], [is_sl_k], j % 2, True))
+                
+                    tasks.append((learner_sd, [sd_k], [id_k], [is_sl_k], j % 2, True))
                     tags.append("pool2p")
                     opp_ids.append(id_k)
-            else:                                    # bootstrap: gate the first snapshot vs SL
+            else:                                    
                 sl_sd, _sl_id, sl_is_sl = as_ref(sl_entry)
                 for j in range(EVAL_GAMES_2P):
-                    tasks.append((learner_sd, [sl_sd], [sl_is_sl], j % 2, True))
+                  
+                    tasks.append((learner_sd, [sl_sd], [-1], [sl_is_sl], j % 2, True))
                     tags.append("sl2p")
                     opp_ids.append(-1)
-            trios = eval_trios()                     # distinct fixed trios, cycled
+            
+            trios = eval_trios()                     
             for j in range(n4):
                 refs = trios[j % len(trios)]
                 sds = [r[0] for r in refs]
+                ids = [r[1] for r in refs]  
                 is_sls = [r[2] for r in refs]
-                tasks.append((learner_sd, sds, is_sls, j % 4, True))
+               
+                tasks.append((learner_sd, sds, ids, is_sls, j % 4, True))
                 tags.append("4p")
                 opp_ids.append(None)
             return tasks, tags, opp_ids
 
-        # Training: uniform self-play opponents, 3:1 (2p:4p) split.
+        # Training
         n4 = args.games // 4
         n2 = args.games - n4
         cands = league()
+        
         for j in range(n2):
-            sd_k, id_k, is_sl_k = uniform_pick(cands)   # fresh uniform opponent per game
-            tasks.append((learner_sd, [sd_k], [is_sl_k], j % 2, False))
+            sd_k, id_k, is_sl_k = uniform_pick(cands)   
+           
+            tasks.append((learner_sd, [sd_k], [id_k], [is_sl_k], j % 2, False))
             tags.append("sl2p" if is_sl_k else "best2p")
-            opp_ids.append(id_k)                     # clean attribution in 2p
+            opp_ids.append(id_k)                     
+            
         for j in range(n4):
-            refs = opp_trio()                        # fresh trio per game
+            refs = opp_trio()                        
             sds = [r[0] for r in refs]
+            ids = [r[1] for r in refs] 
             is_sls = [r[2] for r in refs]
-            tasks.append((learner_sd, sds, is_sls, j % 4, False))
+          
+            tasks.append((learner_sd, sds, ids, is_sls, j % 4, False))
             tags.append("4p")
-            opp_ids.append(None)                     # ambiguous in 4p -> no stat update
+            opp_ids.append(None)                     
+            
         return tasks, tags, opp_ids
 
     def rollouts(is_eval=False, eval_phase="main"):
         learner_sd = {k: v.detach().cpu() for k, v in net.state_dict().items()}
         tasks, tags, opp_ids = make_tasks(learner_sd, is_eval=is_eval, eval_phase=eval_phase)
-        if remote_sock is not None:
-            results = rollout_remote(remote_sock, tasks)   # runs on the Mac, returns in order
+        
+        # -----------------------------------------------------
+        # 캐싱 페이로드 생성 헬퍼 함수 (이전 답변과 동일)
+        def _prep_remote(tasks_list):
+            new_sync = {}
+            stripped_tasks = []
+            for task in tasks_list:
+                learner_sd, opp_sds, o_ids, opp_is_sl, seat, is_eval = task
+                for sd, oid in zip(opp_sds, o_ids):
+                    if oid not in _REMOTE_SYNCED_IDS:
+                        new_sync[oid] = sd
+                        _REMOTE_SYNCED_IDS.add(oid)
+                stripped_tasks.append((learner_sd, None, o_ids, opp_is_sl, seat, is_eval))
+            return {"sync": new_sync, "tasks": stripped_tasks}
+        # -----------------------------------------------------
+
+        if remote_sock is not None and pool is not None:
+            # 비동기 처리를 위해 tag, opp_id, task를 미리 하나의 세트로 묶음
+            paired_all = list(zip(tags, opp_ids, tasks))
+            split_idx = int(len(paired_all) * 0.3)
+            
+            local_paired = paired_all[:split_idx]
+            remote_paired = paired_all[split_idx:]
+            
+            remote_tasks_raw = [t for _, _, t in remote_paired]
+            local_tasks = [t for _, _, t in local_paired]
+            
+            if remote_tasks_raw:
+                send_obj(remote_sock, _prep_remote(remote_tasks_raw))
+                
+            result_queue = queue.Queue()
+            
+            # 1. Mac 담당 스레드: 들어오는 즉시 읽어서 큐에 넣음 (네트워크 블로킹 방지)
+            def fetch_remote():
+                try:
+                    for tag, opp_id, _ in remote_paired:
+                        res = recv_obj(remote_sock)
+                        result_queue.put((tag, opp_id, res))
+                except Exception as e:
+                    result_queue.put(e)
+                    
+            # 2. 로컬 담당 스레드: 완료되는 즉시 큐에 넣음
+            def fetch_local():
+                try:
+                    if local_tasks:
+                        for (tag, opp_id, _), res in zip(local_paired, pool.map(_rollout_one, local_tasks)):
+                            result_queue.put((tag, opp_id, res))
+                except Exception as e:
+                    result_queue.put(e)
+
+            t_remote = threading.Thread(target=fetch_remote, daemon=True)
+            t_local = threading.Thread(target=fetch_local, daemon=True)
+            
+            t_remote.start()
+            t_local.start()
+            
+            # 3. 메인 스레드는 큐에서 나오는 대로 yield
+            for _ in range(len(paired_all)):
+                item = result_queue.get()
+                if isinstance(item, Exception):
+                    raise item
+                yield item  # (tag, opp_id, result) 튜플 통째로 반환
+                
+        elif remote_sock is not None:
+            send_obj(remote_sock, _prep_remote(tasks))
+            results = (recv_obj(remote_sock) for _ in range(len(tasks)))
+            yield from zip(tags, opp_ids, results)
+            
         elif pool is not None:
             results = pool.map(_rollout_one, tasks)
+            yield from zip(tags, opp_ids, results)
+            
         else:
             results = (_rollout_one(tk) for tk in tasks)
-        yield from zip(tags, opp_ids, results)
+            yield from zip(tags, opp_ids, results)
 
     # On resume, APPEND to the log/monitor streams instead of truncating them so the
     # run's history (and the live monitor's tail) stays continuous across restarts.

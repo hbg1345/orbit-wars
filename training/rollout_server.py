@@ -29,26 +29,42 @@ from concurrent.futures import ProcessPoolExecutor
 import train_rl_v2 as T
 from rollout_net import recv_obj, send_obj
 
-
+SERVER_POOL_CACHE = {}
 def serve_one(conn, addr, pool):
     print(f"client connected: {addr}")
     n_iter = 0
     while True:
-        tasks = recv_obj(conn)                  # list of task tuples (or None to quit)
-        if tasks is None:
+        msg = recv_obj(conn)
+        if msg is None:
             print("client sent shutdown sentinel")
             return
+            
         t0 = time.perf_counter()
-        # Stream each game's result back as it finishes (pool.map yields in task
-        # order), so the learner sees per-game progress instead of one final dump.
+        
+        # 새 프로토콜: 캐시 동기화 및 태스크 복원
+        if isinstance(msg, dict) and "sync" in msg:
+            # 1) 캐시 업데이트 (새로운 스냅샷 추가)
+            for oid, sd in msg["sync"].items():
+                SERVER_POOL_CACHE[oid] = sd
+                
+            # 2) Task 복원 (비워진 opp_sds를 캐시에서 다시 채워넣기)
+            tasks_to_run = []
+            for t in msg["tasks"]:
+                learner_sd, _, opp_ids, opp_is_sl, seat, is_eval = t
+                opp_sds = [SERVER_POOL_CACHE[oid] for oid in opp_ids]
+                # 로컬 프로세스 풀이 기대하는 튜플 포맷으로 재조립
+                tasks_to_run.append((learner_sd, opp_sds, opp_ids, opp_is_sl, seat, is_eval))
+        else:
+            # 하위 호환
+            tasks_to_run = msg
+
         done = 0
-        for res in pool.map(T._rollout_one, tasks):
+        for res in pool.map(T._rollout_one, tasks_to_run):
             send_obj(conn, res)
             done += 1
         n_iter += 1
         print(f"  served batch {n_iter}: {done} games in "
               f"{time.perf_counter() - t0:.1f}s", flush=True)
-
 
 def main():
     ap = argparse.ArgumentParser()
