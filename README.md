@@ -1,164 +1,134 @@
-# Orbit Wars Agent
+# Orbit Wars 게임 AI
 
-[日本語](#日本語) | [English](#english)
+함대를 보내 행성을 점령하는 전략 게임을 스스로 플레이하는 AI를 개발했습니다.
+공개 경기 기록으로 기본 행동을 학습하고, 이전 버전의 AI들과 대전하며 전략을 학습하는 구조를 만들었습니다.
 
-## 日本語
+**Kaggle Orbit Wars 최종 46위 / 4,729팀 · 상위 약 1.0% · 은메달**
 
-### 結果
+| 항목 | 내용 |
+| --- | --- |
+| 개발 기간 | 2026.06 — 기능 개발 커밋 기준 6월 9일~24일 |
+| 참가 형태 | 개인 참가 |
+| 담당 범위 | 학습 데이터 처리, 모델·시뮬레이터 구현, 지도학습·강화학습, 대전 평가, 제출 파일 구성 |
+| 주요 기술 | Python, PyTorch, NumPy, Transformer, PPO, 멀티프로세싱 |
 
-Kaggle Game Arenaの戦略ゲームコンペティション「Orbit Wars」に個人で参加し、**4,729チーム中46位（上位約1.0%、Silver Medal）**を記録しました。
+[대회 소개와 결과](https://www.kaggle.com/competitions/orbit-wars)
 
-Orbit Warsは、2人または4人のagentが宇宙空間で艦隊を発射し、中立・相手の惑星を占領するゲームです。惑星は太陽の周囲を公転し、艦隊は直線移動するため、現在の距離だけでなく、到着時点の惑星位置、飛行中の艦隊、戦闘結果、太陽・惑星・彗星との衝突を考慮する必要があります。
+## 어떤 문제를 푸는 게임인가요?
 
-私はreplay parser、教師あり学習dataset、Transformer policy/value network、forward simulator、PPO self-play league、評価・提出pipelineを一人で開発しました。
+두 명 또는 네 명의 플레이어가 행성에서 함대를 발사해 다른 행성을 점령하는 게임입니다.
+행성은 태양 주위를 움직이고 함대는 직선으로 이동합니다. 현재 위치뿐 아니라 함대가 도착할 시점의 행성 위치와 전투 결과를 고려해야 합니다.
 
-### システム概要
+AI는 게임 상태를 입력받아 함대를 보낼지, 어느 행성을 공격할지, 얼마만큼의 함대를 보낼지 결정합니다.
+
+## 구현한 학습 흐름
 
 ```mermaid
 flowchart LR
-    R["Public replays"] --> P["Streaming parser"]
-    P --> M["20GB+ memmap feature store"]
-    M --> S["Supervised learning"]
-    S --> L["PPO self-play league"]
-    L --> E["Snapshot evaluation"]
-    E --> B["Reproducible submission bundle"]
+    Replay[공개 경기 기록] --> Data[학습 데이터 변환]
+    Data --> SL[지도학습]
+    SL --> RL[PPO 자기 대전 학습]
+    RL --> Eval[이전 모델과 대전 평가]
+    Eval --> Submit[제출 파일 생성]
 ```
 
-### 技術的に注力した点
+- **지도학습:** 상위 플레이어의 경기 기록에서 상태와 행동을 추출해 기본적인 플레이를 학습했습니다.
+- **강화학습:** 지도학습한 모델을 초기 모델로 사용하고, 이전 버전의 모델들과 대전하며 PPO 방식으로 학습했습니다.
+- **게임 시뮬레이션:** 함대 이동, 도착과 전투를 계산해 모델이 사용할 미래 상태를 만들었습니다.
+- **실험 환경:** 데이터 변환, 대전 실행, 모델 평가와 제출 파일 생성을 반복할 수 있도록 구성했습니다.
 
-#### 1. 艦隊一覧ではなく、惑星ごとの未来状態を入力する
+## 주요 고민과 구현
 
-初期モデルは飛行中の艦隊情報を持たず、周囲の中立惑星を数個占領した後に攻撃を止めることがありました。可変長の艦隊一覧をそのまま入力する案も検討しましたが、意思決定に必要なのは艦隊そのものより、到着後に各惑星の所有者と兵力がどう変わるかだと判断しました。
+### 1. 움직이는 행성과 함대를 어떻게 입력할 것인가
 
-そこで、飛行中の艦隊の移動・到着・戦闘を`forecast.py`でforward simulationし、各惑星の将来の所有者、兵力、位置を固定長時系列へ変換しました。予測範囲を長くするとfeature storeも比例して大きくなるため、replayの移動時間分布を分析し、`HORIZON=20`を選択しています。
+현재 거리만으로 공격을 판단하면 이미 이동 중인 함대가 도착한 뒤의 상황을 놓칠 수 있습니다.
+이를 반영하기 위해 행성별로 향후 20턴의 소유자, 병력과 위치를 계산해 모델에 입력했습니다.
+이 예측은 현재 확인된 함대를 바탕으로 하며, 상대가 앞으로 내릴 명령을 미리 아는 것은 아닙니다.
 
-現在のOrbitNetは、惑星間関係をTransformer Encoderで表現し、発射有無、target、投入mode（最小占領兵力 / all-in）、state valueを予測します。必要兵力と衝突を避ける発射角は、学習モデルではなく同じforward simulatorと決定論的heuristicで計算します。関係学習はmodelに任せつつ、ゲーム規則上正確であるべき計算は検証可能なcodeへ分離しました。
+모델은 Transformer로 행성 사이의 관계를 처리하고, 발사 여부·공격 대상·투입 방식과 현재 상태의 가치를 예측합니다.
+점령에 필요한 최소 함대 수와 충돌을 피하는 발사 각도는 시뮬레이터와 규칙으로 계산하도록 역할을 나누었습니다.
 
-#### 2. 20GBを超えるreplay featureを反復生成できるpipeline
+관련 코드: [미래 상태 계산](forecast.py) · [입력 구성](features.py) · [모델](model.py)
 
-公開replayのzipを展開せず、episode単位でstreaming parseします。featureはkeyごとのappend-only binary fileへ書き出し、学習時は`numpy.memmap`で必要なrowだけを読みます。所有者channelは`int8`で保存し、peak memoryをほぼ1 replay分に抑えました。
+### 2. 20GB가 넘는 학습 데이터를 어떻게 처리할 것인가
 
-replay変換はProcessPoolで並列化し、parser・feature定義を変更すると`PARSER_VERSION`により古いcacheを自動無効化します。これにより、20GBを超えるfeatureをRAMへ一括展開せず、仕様変更後も同じ手順でdatasetを再生成できます。
+공개 경기 기록을 학습 입력으로 변환하면 데이터가 커지므로, 전체 데이터를 한꺼번에 메모리에 올리지 않도록 구성했습니다.
+경기 기록을 하나씩 읽어 변환한 데이터를 파일에 저장하고, 학습할 때는 `numpy.memmap`으로 필요한 부분을 읽습니다.
+소유자 정보처럼 값의 범위가 작은 데이터는 작은 정수형으로 저장하고, 데이터 변환은 여러 프로세스로 나누어 실행했습니다.
 
-#### 3. PPO self-playと退行を検出するsnapshot league
+입력 정의가 바뀌면 기존 캐시를 무효화해 이전 형식의 데이터를 다시 사용하는 문제도 방지했습니다.
 
-公開replayを用いた教師あり学習から開始し、そのweightを初期値としてPPO self-playへ移行しました。leagueは最大6個のbest snapshotと固定SL teacherを保持し、2人戦・4人戦のopponentをuniformにsampleします。training codeはteacher KL、GAE、resume時のoptimizer/RNG復元にも対応しています。
+관련 코드: [데이터 변환과 읽기](dataset.py) · [경기 기록 해석](replay.py)
 
-新しいsnapshotは直近snapshotへの評価を通過した後、最古のsnapshotに対する別の評価も通過した場合だけ保存します。これにより、特定の相手にだけ強くなる改善や、過去戦略への退行を検出します。
+### 3. 새 모델이 실제로 나아졌는지 어떻게 판단할 것인가
 
-#### 4. Desktop learnerとMacBook actorによる分散rollout
+특정 상대에게 이기는 것만으로 전반적인 개선을 판단하기는 어렵습니다.
+여러 과거 모델을 보관하고 새 모델의 대전 결과를 비교하도록 구성했습니다.
+최근 모델에 대한 평가와 오래된 모델에 대한 평가를 함께 사용해, 새 전략을 학습하면서 이전에 잘하던 플레이를 잃는지도 살폈습니다.
 
-1 gameずつ実行した初期構成では、rollout生成に約23.5秒かかりました。ProcessPoolによる並列化後は約2秒まで短縮しました。さらに、desktopでPPO learnerとlocal workerを動かし、MacBookではCPU worker poolを持つrollout serverを常駐させました。
+관련 코드: [지도학습](training/train_sl.py) · [PPO 학습과 평가](training/train_rl_v2.py)
 
-remote構成ではtaskを標準でlocal 35% / remote 65%へ分け、完了した結果をqueueへ統合します。messageはlength-prefixed TCP上でzlib圧縮pickleとして送信し、snapshot weightはIDごとにserver側cacheへ同期して、同じweightの再送を避けます。
+### 4. 반복 실험과 제출 과정을 어떻게 관리할 것인가
 
-#### 5. 学習codeと提出物の不一致を防止
+여러 경기를 병렬로 실행해 학습에 필요한 대전 기록을 수집했습니다.
+데스크톱에서 모델을 학습하면서 다른 컴퓨터의 작업 프로세스가 경기를 실행하고 결과를 전달하는 분산 실행 경로도 구현했습니다.
 
-Kaggle提出は複数moduleとweightを1つのtar.gzへまとめる必要があります。提出scriptは毎回staging directoryを作り直し、実際にbundleへ入るcodeとweightでlocal sanity gameを実行できます。古い`model.py`と新しいcheckpointが混ざる事故を防ぐため、学習側と提出側で同じsourceを使用します。
+제출할 때는 현재 코드와 모델 가중치를 별도 폴더에 모아 압축합니다.
+지도학습 모델용 제출 스크립트에는 제출 폴더의 코드로 대전을 실행하는 선택 기능을 두어 코드와 가중치를 함께 확인할 수 있도록 했습니다.
 
-### Repository layout
+관련 코드: [분산 경기 실행](training/rollout_server.py) · [대전 실행](run_game.py) · [제출 스크립트](submit_rl.sh)
 
-| Path | Role |
-|---|---|
-| `features.py` | Current state + 20-turn future trajectory features |
-| `forecast.py` | Fleet movement, arrival, combat, aiming, and minimum-capture simulation |
-| `model.py` | OrbitNet policy/value network |
-| `replay.py` | Replay/action alignment and supervised labels |
-| `dataset.py` | Streaming parser and disk-backed memmap dataset |
-| `training/train_sl.py` | Supervised learning |
-| `training/train_rl_v2.py` | PPO self-play and snapshot evaluation |
-| `training/rollout_server.py` | Remote CPU rollout actor |
-| `run_game.py` | Local 2-player/4-player evaluation and replay output |
-| `submit_sl.sh`, `submit_rl.sh` | Reproducible Kaggle bundle creation |
-| `latest_submission/` | Final staged agent source |
+## 결과와 돌아본 점
 
-### 環境構築と実行
+최종 순위는 4,729팀 중 46위이며 은메달을 받았습니다.
+모델 구조뿐 아니라 게임 상태를 입력으로 표현하는 방법, 학습 데이터 처리와 평가 환경이 함께 필요하다는 점을 경험했습니다.
+
+대전 상대와 초기 조건에 따라 승률이 달라질 수 있어, 한 번의 승률이나 제출 점수만으로 변경을 평가하지 않도록 주의했습니다.
+
+## 주요 파일
+
+| 파일 | 역할 |
+| --- | --- |
+| [features.py](features.py) | 현재 상태와 향후 20턴의 예측 상태를 모델 입력으로 구성 |
+| [forecast.py](forecast.py) | 함대 이동·도착·전투와 발사 각도 계산 |
+| [model.py](model.py) | 행동과 상태 가치를 예측하는 모델 |
+| [dataset.py](dataset.py) | 경기 기록 변환과 파일 기반 학습 데이터 처리 |
+| [training/](training/) | 지도학습, 강화학습과 분산 대전 실행 |
+| [run_game.py](run_game.py) | 로컬 대전과 평가 |
+| [latest_submission/](latest_submission/) | 제출용으로 구성한 코드와 가중치 |
+
+## 실행 방법
+
+기존 개발 환경은 Python 3.12입니다. 패키지 목록은 [requirements.txt](requirements.txt)에 정리했습니다.
+학습에는 경기 기록 데이터가 필요하며, 제출과 경기 기록 다운로드에는 Kaggle 계정 설정이 필요합니다.
+GPU를 사용한다면 실행 환경에 맞는 PyTorch를 설치해야 합니다.
 
 ```bash
 conda create -n orbit python=3.12
 conda activate orbit
 pip install -r requirements.txt
+```
 
-# 1. replay -> disk-backed feature store
+데이터 변환과 학습:
+
+```bash
 python dataset.py --workers 8
-
-# 2. supervised learning
 python training/train_sl.py
-
-# 3. PPO self-play
 python training/train_rl_v2.py --iters 200 --games 8 --workers 6
 ```
 
-複数gameのlocal evaluation:
+로컬 대전:
 
 ```bash
 python run_game.py --games 40 --workers 8 main.py random
-python run_game.py main.py main.py main.py main.py
 ```
 
-MacBookをremote actorとして使う場合:
+위 명령은 여러 경기의 승률을 집계합니다. 경기 기록과 HTML 리플레이를 저장하려면 `--workers 1`로 실행합니다.
+
+Kaggle 제출(Bash 환경, Kaggle 계정 설정 필요):
 
 ```bash
-# MacBook
-python training/rollout_server.py --port 5555 --workers 6
-
-# Desktop learner
-python training/train_rl_v2.py --remote <mac-ip>:5555 --iters 200 --games 20
+bash submit_rl.sh "PPO 모델"
 ```
 
-Kaggle bundle:
-
-```bash
-./submit_sl.sh "SL agent" --check
-./submit_rl.sh "RL agent"
-```
-
----
-
-## English
-
-### Result and problem
-
-This repository contains my solo entry for Kaggle Game Arena: Orbit Wars. It placed **46th out of 4,729 teams (top ~1.0%, Silver Medal)**.
-
-In Orbit Wars, two or four agents launch fleets to capture neutral and enemy planets. Planets orbit the sun while fleets move along straight trajectories, so an agent must reason about future planet positions, fleets already in flight, combat, and collision geometry—not only current distance.
-
-I built the replay parser, supervised dataset, Transformer policy/value model, forward simulator, PPO self-play league, evaluation tooling, distributed rollout path, and submission pipeline.
-
-### Design highlights
-
-#### Future state per planet
-
-An early model without in-flight fleet information captured a few nearby planets and then stopped expanding. Instead of feeding a variable-length fleet list directly to the network, the pipeline forward-simulates movement, arrival, and combat. Each planet receives a fixed 20-turn trajectory of future owner, garrison, and position.
-
-OrbitNet uses a Transformer Encoder across planets and predicts launch gate, target, amount mode, and state value. Exact fleet sizing and collision-safe aiming remain in deterministic simulation and heuristics. This separates relational decisions that benefit from learning from calculations that must remain faithful to the game rules.
-
-#### Disk-backed replay pipeline
-
-Replay ZIP files are parsed one episode at a time without extraction. Features are streamed to append-only files and reopened through `numpy.memmap`; ownership channels are stored as `int8`. Process workers parse episodes in parallel, and `PARSER_VERSION` invalidates stale caches when replay or feature semantics change. The resulting 20GB+ store does not have to fit in RAM.
-
-#### PPO league and regression gates
-
-Training starts from supervised weights and continues with PPO self-play. The league keeps up to six best snapshots plus a fixed supervised teacher. Candidate snapshots are evaluated against the most recent checkpoint and, after that gate passes, against the oldest retained checkpoint to catch regression. The training path also supports GAE, teacher KL, and full optimizer/RNG resume bundles.
-
-#### Distributed rollout
-
-Parallel game workers reduced rollout time from roughly 23.5 seconds per game to about 2 seconds. A desktop learner can split work between its local pool (35%) and a persistent MacBook CPU actor (65%). Length-prefixed TCP messages carry zlib-compressed pickle payloads, and the remote server caches opponent snapshots by ID to avoid repeatedly sending the same weights.
-
-#### Reproducible submission
-
-Submission scripts rebuild a clean staging directory from the current source and weights before creating the Kaggle tarball. An optional sanity game runs the exact staged code, preventing stale modules and incompatible checkpoints from being submitted together.
-
-### Quick start
-
-```bash
-conda create -n orbit python=3.12
-conda activate orbit
-pip install -r requirements.txt
-
-python dataset.py --workers 8
-python training/train_sl.py
-python training/train_rl_v2.py --iters 200 --games 8 --workers 6
-```
-
-See the Japanese section above for the architecture, repository map, distributed actor commands, and submission workflow.
+위 스크립트는 제출 파일을 만들고 Kaggle에 업로드합니다. 지도학습 모델은 `bash submit_sl.sh "지도학습 모델" --check`로 제출 폴더의 코드로 대전을 실행한 뒤 업로드할 수 있습니다.
